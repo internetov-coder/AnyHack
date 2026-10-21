@@ -211,7 +211,7 @@ class _DashboardPageState extends State<DashboardPage> {
           final dt = totals.$1 - prev.$1;
           final di = totals.$2 - prev.$2;
           if (dt > 0) {
-            _cpuLoad = (((dt - di) / dt) * 100).clamp(0.0, 100.0);
+            _cpuLoad = (((dt - di) / dt) * 100).clamp(0.0, 100.0).toDouble();
           }
         }
         _prevTotals = totals;
@@ -308,7 +308,7 @@ class _DashboardPageState extends State<DashboardPage> {
   }
 
   Widget _cpuCard(BuildContext context, HwSnapshot snap) {
-    final load = _cpuLoad ?? 0;
+    final load = _cpuLoad ?? 0.0;
     final cores = snap.coreFreqs;
     final little = <int>[];
     final medium = <int>[];
@@ -425,7 +425,7 @@ class _DashboardPageState extends State<DashboardPage> {
           ClipRRect(
             borderRadius: BorderRadius.circular(6),
             child: LinearProgressIndicator(
-              value: load == null ? null : (load / 100).clamp(0.0, 1.0),
+              value: load == null ? null : (load / 100).clamp(0.0, 1.0).toDouble(),
               minHeight: 10,
             ),
           ),
@@ -465,7 +465,7 @@ class _DashboardPageState extends State<DashboardPage> {
           ClipRRect(
             borderRadius: BorderRadius.circular(6),
             child: LinearProgressIndicator(
-              value: ratio.clamp(0.0, 1.0),
+              value: ratio.clamp(0.0, 1.0).toDouble(),
               minHeight: 10,
             ),
           ),
@@ -504,7 +504,7 @@ class _DashboardPageState extends State<DashboardPage> {
           ClipRRect(
             borderRadius: BorderRadius.circular(6),
             child: LinearProgressIndicator(
-              value: ratio.clamp(0.0, 1.0),
+              value: ratio.clamp(0.0, 1.0).toDouble(),
               minHeight: 10,
             ),
           ),

@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:io';
 
 /// Постоянная root-сессия (`su`) с захватом вывода по маркеру.
 ///

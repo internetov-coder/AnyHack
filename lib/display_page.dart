@@ -140,7 +140,6 @@ class _DisplayPageState extends State<DisplayPage> {
                           Text(
                             _values[k] ?? '—',
                             style: TextStyle(
-                              fontFeatures: const [],
                               fontWeight: FontWeight.w600,
                               color: (_values[k] == 'null' || _values[k] == '—')
                                   ? scheme.outline
@@ -175,9 +174,9 @@ class _DisplayPageState extends State<DisplayPage> {
   }
 
   Widget _presetTile(
-    BuildContext context, {
-    required ({String label, int? hz, IconData icon}) p,
-  }) {
+    BuildContext context,
+    ({String label, int? hz, IconData icon}) p,
+  ) {
     final selected = p.hz == null ? _isAuto : (_lockedHz == p.hz);
     final scheme = Theme.of(context).colorScheme;
 
