@@ -16,20 +16,11 @@ class MainActivity : FlutterActivity() {
                 val irManager = getSystemService(Context.CONSUMER_IR_SERVICE) as? ConsumerIrManager
                 when (call.method) {
                     "hasIrEmitter" -> {
-                        result.success(irManager?.hasIrEmitter == true)
-                    }
-
-                    "getCarrierFrequencies" -> {
-                        val ranges = try {
-                            irManager?.carrierFrequencies
-                        } catch (e: Exception) {
-                            null
-                        }
-                        result.success(ranges?.map { it.minFrequencyHz } ?: emptyList<Int>())
+                        result.success(irManager != null && irManager.hasIrEmitter())
                     }
 
                     "transmit" -> {
-                        if (irManager == null || !irManager.hasIrEmitter) {
+                        if (irManager == null || !irManager.hasIrEmitter()) {
                             result.error("NO_IR", "IR emitter not available", null)
                             return@setMethodCallHandler
                         }
