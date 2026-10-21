@@ -1,0 +1,70 @@
+name: Release
+
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+
+      - name: Backup custom files
+        run: |
+          set -e
+          mkdir -p /tmp/ah_custom/android_main /tmp/ah_custom/android_kt
+          cp -a lib /tmp/ah_custom/
+          cp -a pubspec.yaml analysis_options.yaml /tmp/ah_custom/
+          cp -a android/app/src/main/AndroidManifest.xml /tmp/ah_custom/android_main/
+          cp -a android/app/src/main/kotlin /tmp/ah_custom/android_kt/
+
+      - name: Scaffold Flutter project
+        run: flutter create --org com.anyhack.app --project-name anyhack .
+
+      - name: Restore custom files
+        run: |
+          set -e
+          rm -rf lib test
+          cp -a /tmp/ah_custom/lib .
+          cp -a /tmp/ah_custom/pubspec.yaml /tmp/ah_custom/analysis_options.yaml .
+          cp -a /tmp/ah_custom/android_main/AndroidManifest.xml android/app/src/main/AndroidManifest.xml
+          rm -rf android/app/src/main/kotlin
+          mkdir -p android/app/src/main
+          cp -a /tmp/ah_custom/android_kt/kotlin android/app/src/main/kotlin
+
+      - name: Install dependencies
+        run: flutter pub get
+
+      - name: Build release APK (arm64)
+        run: flutter build apk --release --target-platform android-arm64
+
+      - name: Package APK
+        run: |
+          set -e
+          src=$(ls build/app/outputs/flutter-apk/app-*release*.apk | head -n 1)
+          cp "$src" AnyHack-arm64.apk
+          ls -l AnyHack-arm64.apk
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v1.0.0-r${{ github.run_number }}
+          name: AnyHack v1.0.0-r${{ github.run_number }}
+          files: AnyHack-arm64.apk
+          generate_release_notes: true
