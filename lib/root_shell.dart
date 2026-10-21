@@ -22,7 +22,7 @@ class RootShell {
     if (_proc != null || _starting) return;
     _starting = true;
     try {
-      final p = await Process.start('/system/bin/su');
+      final p = await Process.start('/system/bin/su', const <String>[]);
       _proc = p;
       p.stdout
           .cast<List<int>>()
