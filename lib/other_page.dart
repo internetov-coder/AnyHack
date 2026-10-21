@@ -79,30 +79,35 @@ class _OtherPageState extends State<OtherPage> {
 
   Future<void> _import() async {
     HapticFeedback.lightImpact();
-    final res = await FilePicker.platform.pickFiles(
-      type: FileType.custom,
-      allowedExtensions: const ['ir'],
-      allowMultiple: true,
-      withData: true,
-    );
-    if (res == null || res.files.isEmpty) return;
+    try {
+      final files = await FilePicker.pickFiles(
+        type: FileType.custom,
+        allowedExtensions: const ['ir'],
+      );
+      if (files.isEmpty) return; // отмена
 
-    var added = 0;
-    for (final f in res.files) {
-      final bytes = f.bytes;
-      if (bytes == null) continue;
-      final base = f.name.replaceAll(RegExp(r'\.ir$', caseSensitive: false), '');
-      final remote = parseIrFile(utf8.decode(bytes, allowMalformed: true), base);
-      if (remote == null) continue;
-      _remotes.removeWhere((r) => r.name == remote.name);
-      _remotes.add(remote);
-      added++;
+      var added = 0;
+      for (final f in files) {
+        final bytes = await f.readAsBytes();
+        final base =
+            f.name.replaceAll(RegExp(r'\.ir$', caseSensitive: false), '');
+        final remote =
+            parseIrFile(utf8.decode(bytes, allowMalformed: true), base);
+        if (remote == null) continue;
+        _remotes.removeWhere((r) => r.name == remote.name);
+        _remotes.add(remote);
+        added++;
+      }
+      await _save();
+      if (!mounted) return;
+      setState(() {});
+      _snack(
+        added > 0 ? 'Импортировано пультов: $added' : 'Сигналы в файлах не найдены',
+        ok: added > 0,
+      );
+    } catch (e) {
+      _snack('Ошибка импорта: $e');
     }
-    await _save();
-    if (!mounted) return;
-    setState(() {});
-    _snack(added > 0 ? 'Импортировано пультов: $added' : 'Сигналы в файлах не найдены',
-        ok: added > 0);
   }
 
   Future<void> _removeRemote(IrRemote remote) async {
