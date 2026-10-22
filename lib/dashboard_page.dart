@@ -196,7 +196,7 @@ class _DashboardPageState extends State<DashboardPage>
   Timer? _timer;
   bool _busy = false;
   bool _resumed = true;
-  String? _lastRaw;
+  int _emptyStreak = 0;
   HwSnapshot? _snap;
   double? _cpuLoad;
   (int, int)? _prevTotals;
@@ -227,8 +227,9 @@ class _DashboardPageState extends State<DashboardPage>
     final was = _resumed;
     _resumed = state == AppLifecycleState.resumed;
     // При возврате в фон опрос не идёт (никаких ложных «нет данных»),
-    // а сразу по пробуждению — свежий тик.
+    // а сразу по пробуждению — свежий тик; сбрасываем и плашку, и счётчик.
     if (_resumed && !was) {
+      _emptyStreak = 0;
       _startTimer();
       _tick();
     }
@@ -246,8 +247,18 @@ class _DashboardPageState extends State<DashboardPage>
     if (_busy || !_resumed) return;
     _busy = true;
     try {
-      final out = await RootShell.instance.run(_sampleScript);
+      final out = await RootShell.instance
+          .run(_sampleScript, expectOutput: true);
       if (!mounted || !_resumed) return;
+
+      if (out.isEmpty) {
+        // Не затираем последние валидные данные; плашка — после 2 сбоев подряд.
+        _emptyStreak++;
+        setState(() {});
+        return;
+      }
+      _emptyStreak = 0;
+
       final snap = HwSnapshot.parse(out);
       final totals = HwSnapshot.cpuTotals(snap.cpuLine);
       if (totals != null) {
@@ -262,7 +273,6 @@ class _DashboardPageState extends State<DashboardPage>
         _prevTotals = totals;
       }
       setState(() {
-        _lastRaw = out;
         _snap = snap;
       });
     } finally {
@@ -273,7 +283,7 @@ class _DashboardPageState extends State<DashboardPage>
   @override
   Widget build(BuildContext context) {
     final snap = _snap ?? HwSnapshot.empty;
-    final rootLost = _lastRaw != null && _lastRaw!.isEmpty;
+    final rootLost = _emptyStreak >= 2;
 
     return ListView(
       padding: const EdgeInsets.only(bottom: 16),

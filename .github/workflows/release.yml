@@ -58,13 +58,13 @@ jobs:
         run: |
           set -e
           src=$(ls build/app/outputs/flutter-apk/app-*release*.apk | head -n 1)
-          cp "$src" AnyHack-arm64.apk
-          ls -l AnyHack-arm64.apk
+          cp "$src" "AnyHack-arm64-R${{ github.run_number }}.apk"
+          ls -l "AnyHack-arm64-R${{ github.run_number }}.apk"
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
           tag_name: v1.0.0-r${{ github.run_number }}
           name: AnyHack v1.0.0-r${{ github.run_number }}
-          files: AnyHack-arm64.apk
+          files: AnyHack-arm64-R${{ github.run_number }}.apk
           generate_release_notes: true

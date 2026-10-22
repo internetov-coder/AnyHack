@@ -84,56 +84,59 @@ class _OtherPageState extends State<OtherPage> {
 
   Future<void> _import() async {
     HapticFeedback.lightImpact();
+
+    // FileType.any: кастомный фильтр 'ir' на Android приводил к ошибке
+    // после выбора файла. Фильтруем расширение сами.
+    final List<PlatformFile> files;
     try {
-      final files = await FilePicker.pickFiles(
-        type: FileType.custom,
-        allowedExtensions: const ['ir'],
-      );
-      if (files.isEmpty) return; // отмена
-
-      final irFiles = files
-          .where((f) => f.name.toLowerCase().endsWith('.ir'))
-          .toList();
-      if (irFiles.isEmpty) {
-        _snack('Можно выбирать только файлы .ir (Flipper Zero)');
-        return;
-      }
-
-      var added = 0;
-      var failed = 0;
-      for (final f in irFiles) {
-        try {
-          final bytes = await f.readAsBytes();
-          final base =
-              f.name.replaceAll(RegExp(r'\.ir$', caseSensitive: false), '');
-          final remote =
-              parseIrFile(utf8.decode(bytes, allowMalformed: true), base);
-          if (remote == null) {
-            failed++;
-            continue;
-          }
-          _remotes.removeWhere((r) => r.name == remote.name);
-          _remotes.add(remote);
-          added++;
-        } catch (_) {
-          failed++;
-        }
-      }
-      await _save();
-      if (!mounted) return;
-      setState(() {});
-      if (added > 0) {
-        _snack(
-          failed > 0
-              ? 'Импортировано: $added, ошибок: $failed'
-              : 'Импортировано пультов: $added',
-          ok: true,
-        );
-      } else {
-        _snack('В файле не найдено сигналов .ir');
-      }
+      files = await FilePicker.pickFiles(type: FileType.any);
     } catch (_) {
-      _snack('Не удалось открыть выбор файла');
+      _snack('Не удалось открыть выбор файлов');
+      return;
+    }
+    if (files.isEmpty) return; // отмена
+
+    final irFiles =
+        files.where((f) => f.name.toLowerCase().endsWith('.ir')).toList();
+    if (irFiles.isEmpty) {
+      _snack('Можно выбирать только файлы .ir (Flipper Zero)');
+      return;
+    }
+
+    var added = 0;
+    var failed = 0;
+    for (final f in irFiles) {
+      try {
+        final bytes = await f.readAsBytes();
+        final base =
+            f.name.replaceAll(RegExp(r'\.ir$', caseSensitive: false), '');
+        final remote =
+            parseIrFile(utf8.decode(bytes, allowMalformed: true), base);
+        if (remote == null) {
+          failed++;
+          continue;
+        }
+        _remotes.removeWhere((r) => r.name == remote.name);
+        _remotes.add(remote);
+        added++;
+      } catch (_) {
+        failed++;
+      }
+    }
+    try {
+      await _save();
+    } catch (_) {}
+    if (!mounted) return;
+    setState(() {});
+    if (added > 0) {
+      _snack(
+        failed > 0
+            ? 'Импортировано: $added, ошибок: $failed'
+            : 'Импортировано пультов: $added',
+        ok: true,
+      );
+    } else {
+      _snack('В файле не найдено сигналов .ir');
     }
   }
 
