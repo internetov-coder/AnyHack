@@ -35,14 +35,25 @@ class RootShell {
   bool _acqFailed = false;
   DateTime _lastAcq = DateTime.fromMillisecondsSinceEpoch(0);
 
+  /// Активен ли быстрый sh-путь (процесс получил root через KSU API).
+  bool get usingSh => _selfRooted == true;
+
+  /// Принудительно перейти на su (например, если API-путь ненадёжен).
+  void demote() {
+    _selfRooted = false;
+    _acqFailed = true;
+    _lastAcq = DateTime.now();
+  }
+
   Future<String> run(
     String cmd, {
     Duration timeout = const Duration(seconds: 6),
     bool expectOutput = false,
+    bool forceSu = false,
   }) async {
-    _kickAcquire();
+    if (!forceSu) _kickAcquire();
 
-    if (_selfRooted == true) {
+    if (!forceSu && _selfRooted == true) {
       final out = await _exec('/system/bin/sh', ['-c', cmd], timeout);
       if (out.isNotEmpty || !expectOutput) return out;
       // Пустой вывод при ожидаемых данных — падаем на su для этого вызова.
@@ -160,22 +171,31 @@ void _ksuSuperCallGrantRoot() {
   }
 }
 
-/// Проверка: uid == 0 И root-профиль реально работает
-/// (SELinux разрешает читать системные данные, как у su).
+/// Строгая проверка root: uid == 0, ЧИТАЕТСЯ root-only sysfs (GPU-файл
+/// на Xiaomi 14T недоступен без root) и системные данные (SELinux-домен).
 Future<bool> _probeRoot() async {
   try {
     final r = await Process.run(
       '/system/bin/sh',
-      ['-c', 'id -u; [ -r /data/system/packages.xml ] && echo OK'],
+      [
+        '-c',
+        'id -u; '
+            'cat /sys/class/devfreq/13000000.mali/cur_freq 2>/dev/null; '
+            '[ -r /data/system/packages.xml ] && echo OK',
+      ],
       runInShell: false,
     ).timeout(const Duration(seconds: 3));
     final lines = r.stdout
         ?.toString()
         .split('\n')
         .map((e) => e.trim())
+        .where((e) => e.isNotEmpty)
         .toList();
     if (lines == null || lines.isEmpty) return false;
-    return lines.first == '0' && lines.contains('OK');
+    final uidOk = lines.first == '0';
+    final gpuOk = lines.any((l) => RegExp(r'^\d{6,}$').hasMatch(l));
+    final selinuxOk = lines.contains('OK');
+    return uidOk && gpuOk && selinuxOk;
   } catch (_) {
     return false;
   }

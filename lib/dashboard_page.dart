@@ -83,7 +83,19 @@ class HwSnapshot {
         .toList();
 
     final cpuLines = sec('HEAD').where((l) => l.startsWith('cpu ')).toList();
-    final cpuLine = cpuLines.isEmpty ? '' : cpuLines.first;
+    var cpuLine = cpuLines.isEmpty ? '' : cpuLines.first;
+    if (cpuLine.isEmpty) {
+      // Фолбэк: ищем строку cpu по всему выводу.
+      for (final lines in sections.values) {
+        for (final l in lines) {
+          if (l.trimLeft().startsWith('cpu ')) {
+            cpuLine = l.trim();
+            break;
+          }
+        }
+        if (cpuLine.isNotEmpty) break;
+      }
+    }
 
     final coreFreqs = <int, int>{};
     for (final l in sec('FREQ')) {
@@ -247,9 +259,20 @@ class _DashboardPageState extends State<DashboardPage>
     if (_busy || !_resumed) return;
     _busy = true;
     try {
-      final out = await RootShell.instance
+      var out = await RootShell.instance
           .run(_sampleScript, expectOutput: true);
       if (!mounted || !_resumed) return;
+
+      // Канарейка: GPU-файл читается ТОЛЬКО с root. Если sh-путь (KSU API)
+      // даёт частичные данные без root — демотируем на su и перечитываем.
+      if (out.isNotEmpty &&
+          RootShell.instance.usingSh &&
+          HwSnapshot.parse(out).gpuFreqHz == null) {
+        RootShell.instance.demote();
+        out = await RootShell.instance
+            .run(_sampleScript, expectOutput: true);
+        if (!mounted || !_resumed) return;
+      }
 
       if (out.isEmpty) {
         // Не затираем последние валидные данные; плашка — после 2 сбоев подряд.
@@ -271,6 +294,8 @@ class _DashboardPageState extends State<DashboardPage>
           }
         }
         _prevTotals = totals;
+      } else {
+        _cpuLoad = null;
       }
       setState(() {
         _snap = snap;
@@ -368,7 +393,7 @@ class _DashboardPageState extends State<DashboardPage>
             crossAxisAlignment: CrossAxisAlignment.end,
             children: [
               Text(
-                '${load.toStringAsFixed(0)}%',
+                _cpuLoad == null ? '—' : '${_cpuLoad!.toStringAsFixed(0)}%',
                 style: Theme.of(context).textTheme.headlineSmall,
               ),
               const SizedBox(width: 10),
@@ -448,7 +473,7 @@ class _DashboardPageState extends State<DashboardPage>
               ),
               const SizedBox(width: 12),
               Text(
-                load == null ? '' : 'Нагрузка $load%',
+                load == null ? 'Нагрузка —' : 'Нагрузка $load%',
                 style: Theme.of(context).textTheme.bodyMedium,
               ),
             ],
@@ -457,7 +482,7 @@ class _DashboardPageState extends State<DashboardPage>
           ClipRRect(
             borderRadius: BorderRadius.circular(6),
             child: LinearProgressIndicator(
-              value: load == null ? null : (load / 100).clamp(0.0, 1.0).toDouble(),
+              value: load == null ? 0 : (load / 100).clamp(0.0, 1.0).toDouble(),
               minHeight: 10,
             ),
           ),

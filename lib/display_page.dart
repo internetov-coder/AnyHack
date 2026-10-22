@@ -48,7 +48,9 @@ class _DisplayPageState extends State<DisplayPage> {
   }
 
   Future<void> _read() async {
-    final out = await RootShell.instance.run(_getScript);
+    // Display всегда через su — путь, проверенный на устройстве (r9).
+    final out =
+        await RootShell.instance.run(_getScript, forceSu: true);
     // Только строки вида null/<число> — устойчиво к шуму su-баннера.
     final vals = out
         .split('\n')
@@ -102,7 +104,8 @@ class _DisplayPageState extends State<DisplayPage> {
           'settings put secure user_refresh_rate $hz; '
           'settings put secure miui_refresh_rate $hz';
     }
-    await RootShell.instance.run(cmd, timeout: const Duration(seconds: 5));
+    await RootShell.instance.run(cmd,
+        timeout: const Duration(seconds: 5), forceSu: true);
     await _read();
     if (!mounted) return;
     setState(() {

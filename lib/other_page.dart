@@ -1,11 +1,12 @@
 import 'dart:convert';
+import 'dart:typed_data';
 
-import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'ir_parser.dart';
+import 'root_shell.dart';
 
 class OtherPage extends StatefulWidget {
   const OtherPage({super.key});
@@ -16,6 +17,7 @@ class OtherPage extends StatefulWidget {
 
 class _OtherPageState extends State<OtherPage> {
   static const _channel = MethodChannel('com.anyhack.app/ir');
+  static const _filesChannel = MethodChannel('com.anyhack.app/files');
   static const _prefsKey = 'ir_remotes_v1';
 
   List<IrRemote> _remotes = <IrRemote>[];
@@ -28,6 +30,18 @@ class _OtherPageState extends State<OtherPage> {
   }
 
   Future<void> _load() async {
+    // Лечение: если в прошлой сессии процесс был root (KSU API), файлы
+    // SharedPreferences могли стать root-owned — возвращаем владельца приложения.
+    try {
+      await RootShell.instance.run(
+        'D=$(stat -c %u:%g /data/data/com.anyhack.app 2>/dev/null); '
+        '[ -n "\$D" ] && chown -R "\$D" /data/data/com.anyhack.app/shared_prefs '
+        '2>/dev/null; true',
+        forceSu: true,
+        timeout: const Duration(seconds: 4),
+      );
+    } catch (_) {}
+
     var list = <IrRemote>[];
     bool? ir;
     try {
@@ -63,10 +77,12 @@ class _OtherPageState extends State<OtherPage> {
 
   Future<void> _save() async {
     final prefs = await SharedPreferences.getInstance();
-    await prefs.setString(
-      _prefsKey,
-      jsonEncode(_remotes.map((r) => r.toJson()).toList()),
-    );
+    await prefs
+        .setString(
+          _prefsKey,
+          jsonEncode(_remotes.map((r) => r.toJson()).toList()),
+        )
+        .timeout(const Duration(seconds: 4));
   }
 
   void _snack(String msg, {bool ok = false}) {
@@ -85,38 +101,44 @@ class _OtherPageState extends State<OtherPage> {
   Future<void> _import() async {
     HapticFeedback.lightImpact();
 
-    // FileType.any: кастомный фильтр 'ir' на Android приводил к ошибке
-    // после выбора файла. Фильтруем расширение сами.
-    final List<PlatformFile> files;
+    // Собственный SAF-пикер из MainActivity — без сторонних плагинов.
+    final List<dynamic> picked;
     try {
-      files = await FilePicker.pickFiles(type: FileType.any);
+      final r = await _filesChannel.invokeMethod<List<dynamic>>('pickIr');
+      picked = r ?? const <dynamic>[];
     } catch (_) {
       _snack('Не удалось открыть выбор файлов');
       return;
     }
-    if (files.isEmpty) return; // отмена
-
-    final irFiles =
-        files.where((f) => f.name.toLowerCase().endsWith('.ir')).toList();
-    if (irFiles.isEmpty) {
-      _snack('Можно выбирать только файлы .ir (Flipper Zero)');
-      return;
-    }
+    if (picked.isEmpty) return; // отмена
 
     var added = 0;
     var failed = 0;
-    for (final f in irFiles) {
+    var notIr = 0;
+    for (final item in picked) {
       try {
-        final bytes = await f.readAsBytes();
+        final m = Map<String, dynamic>.from(item as Map);
+        final name = m['name'] as String? ?? '';
+        if (!name.toLowerCase().endsWith('.ir')) {
+          notIr++;
+          continue;
+        }
+        final bytes = await _filesChannel
+            .invokeMethod<Uint8List>('readIr', {'uri': m['uri']})
+            .timeout(const Duration(seconds: 3));
+        if (bytes == null) {
+          failed++;
+          continue;
+        }
         final base =
-            f.name.replaceAll(RegExp(r'\.ir$', caseSensitive: false), '');
+            name.replaceAll(RegExp(r'\.ir$', caseSensitive: false), '');
         final remote =
             parseIrFile(utf8.decode(bytes, allowMalformed: true), base);
         if (remote == null) {
           failed++;
           continue;
         }
-        _remotes.removeWhere((r) => r.name == remote.name);
+        _remotes.removeWhere((r2) => r2.name == remote.name);
         _remotes.add(remote);
         added++;
       } catch (_) {
@@ -135,6 +157,8 @@ class _OtherPageState extends State<OtherPage> {
             : 'Импортировано пультов: $added',
         ok: true,
       );
+    } else if (notIr == picked.length) {
+      _snack('Можно выбирать только файлы .ir (Flipper Zero)');
     } else {
       _snack('В файле не найдено сигналов .ir');
     }
@@ -160,8 +184,11 @@ class _OtherPageState extends State<OtherPage> {
     );
     if (confirmed != true) return;
     _remotes.removeWhere((r) => r.name == remote.name);
-    await _save();
+    try {
+      await _save();
+    } catch (_) {}
     if (mounted) setState(() {});
+    _snack('Пульт удалён', ok: true);
   }
 
   Future<void> _send(IrButton b) async {
