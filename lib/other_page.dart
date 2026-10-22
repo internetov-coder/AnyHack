@@ -34,7 +34,7 @@ class _OtherPageState extends State<OtherPage> {
     // SharedPreferences могли стать root-owned — возвращаем владельца приложения.
     try {
       await RootShell.instance.run(
-        'D=$(stat -c %u:%g /data/data/com.anyhack.app 2>/dev/null); '
+        'D=\$(stat -c %u:%g /data/data/com.anyhack.app 2>/dev/null); '
         '[ -n "\$D" ] && chown -R "\$D" /data/data/com.anyhack.app/shared_prefs '
         '2>/dev/null; true',
         forceSu: true,
