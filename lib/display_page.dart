@@ -89,7 +89,7 @@ class _DisplayPageState extends State<DisplayPage> {
           'settings put system min_refresh_rate $hz; '
           'settings put system peak_refresh_rate $hz';
     }
-    await RootShell.instance.run(cmd, timeout: const Duration(seconds: 8));
+    await RootShell.instance.run(cmd);
     await _read();
     if (!mounted) return;
     setState(() {

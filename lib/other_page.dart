@@ -29,30 +29,37 @@ class _OtherPageState extends State<OtherPage> {
   }
 
   Future<void> _load() async {
-    final prefs = await SharedPreferences.getInstance();
-    final raw = prefs.getString(_prefsKey);
-    final list = <IrRemote>[];
-    if (raw != null) {
-      try {
-        final decoded = jsonDecode(raw) as List<dynamic>;
-        for (final e in decoded) {
-          list.add(IrRemote.fromJson(e as Map<String, dynamic>));
-        }
-      } catch (_) {
-        // битые данные — начинаем с пустого списка
-      }
-    }
+    var list = <IrRemote>[];
     bool? ir;
     try {
-      ir = await _channel.invokeMethod<bool>('hasIrEmitter');
+      final prefs =
+          await SharedPreferences.getInstance().timeout(const Duration(seconds: 3));
+      final raw = prefs.getString(_prefsKey);
+      if (raw != null) {
+        try {
+          final decoded = jsonDecode(raw) as List<dynamic>;
+          list = decoded
+              .map((e) => IrRemote.fromJson(e as Map<String, dynamic>))
+              .toList();
+        } catch (_) {
+          // битые данные — начинаем с пустого списка
+        }
+      }
+    } catch (_) {
+      // prefs недоступны — работаем без сохранённых пультов
+    }
+    try {
+      ir = await _channel
+          .invokeMethod<bool>('hasIrEmitter')
+          .timeout(const Duration(seconds: 2));
     } catch (_) {
       ir = null;
     }
     if (!mounted) return;
     setState(() {
       _remotes = list;
-      _loaded = true;
       _irAvailable = ir;
+      _loaded = true;
     });
   }
 
@@ -157,10 +164,12 @@ class _OtherPageState extends State<OtherPage> {
     }
 
     try {
-      await _channel.invokeMethod('transmit', {
-        'frequency': frequency,
-        'pattern': pattern,
-      });
+      await _channel
+          .invokeMethod('transmit', {
+            'frequency': frequency,
+            'pattern': pattern,
+          })
+          .timeout(const Duration(seconds: 2));
     } on PlatformException catch (e) {
       _snack('ИК-ошибка: ${e.message ?? e.code}');
     } catch (e) {

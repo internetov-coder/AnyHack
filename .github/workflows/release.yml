@@ -35,7 +35,7 @@ jobs:
           cp -a android/app/src/main/kotlin /tmp/ah_custom/android_kt/
 
       - name: Scaffold Flutter project
-        run: flutter create --org com.anyhack.app --project-name anyhack .
+        run: flutter create --org com.anyhack --project-name app .
 
       - name: Restore custom files
         run: |
