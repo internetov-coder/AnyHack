@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 
+import 'poll_config.dart';
 import 'root_shell.dart';
 
 /// Один root-запрос со всеми метриками (опрос раз в 1.5 с).
@@ -48,6 +49,20 @@ class HwSnapshot {
   final Map<String, int> temps; // тип -> м°C (только правдоподобные)
 
   bool get hasData => cpuLine.isNotEmpty || coreFreqs.isNotEmpty;
+
+  /// Пустой снапшот для мгновенного первого кадра (без спиннера).
+  static const HwSnapshot empty = HwSnapshot(
+    cpuLine: '',
+    coreFreqs: <int, int>{},
+    governor: '',
+    gpuFreqHz: null,
+    gpuLoad: null,
+    memTotalKb: 0,
+    memAvailKb: 0,
+    diskTotalKb: null,
+    diskUsedKb: null,
+    temps: <String, int>{},
+  );
 
   static HwSnapshot parse(String out) {
     final sections = <String, List<String>>{'HEAD': <String>[]};
@@ -176,9 +191,11 @@ class DashboardPage extends StatefulWidget {
   State<DashboardPage> createState() => _DashboardPageState();
 }
 
-class _DashboardPageState extends State<DashboardPage> {
+class _DashboardPageState extends State<DashboardPage>
+    with WidgetsBindingObserver {
   Timer? _timer;
   bool _busy = false;
+  bool _resumed = true;
   String? _lastRaw;
   HwSnapshot? _snap;
   double? _cpuLoad;
@@ -187,22 +204,50 @@ class _DashboardPageState extends State<DashboardPage> {
   @override
   void initState() {
     super.initState();
-    _timer = Timer.periodic(const Duration(milliseconds: 1500), (_) => _tick());
+    WidgetsBinding.instance.addObserver(this);
+    final state = WidgetsBinding.instance.lifecycleState;
+    _resumed = state == null || state == AppLifecycleState.resumed;
+    _startTimer();
+    PollConfig.intervalMs.addListener(_onIntervalChanged);
     _tick();
+  }
+
+  void _onIntervalChanged() => _startTimer();
+
+  void _startTimer() {
+    _timer?.cancel();
+    _timer = Timer.periodic(
+      Duration(milliseconds: PollConfig.intervalMs.value),
+      (_) => _tick(),
+    );
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    final was = _resumed;
+    _resumed = state == AppLifecycleState.resumed;
+    // При возврате в фон опрос не идёт (никаких ложных «нет данных»),
+    // а сразу по пробуждению — свежий тик.
+    if (_resumed && !was) {
+      _startTimer();
+      _tick();
+    }
   }
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    PollConfig.intervalMs.removeListener(_onIntervalChanged);
     _timer?.cancel();
     super.dispose();
   }
 
   Future<void> _tick() async {
-    if (_busy) return;
+    if (_busy || !_resumed) return;
     _busy = true;
     try {
       final out = await RootShell.instance.run(_sampleScript);
-      if (!mounted) return;
+      if (!mounted || !_resumed) return;
       final snap = HwSnapshot.parse(out);
       final totals = HwSnapshot.cpuTotals(snap.cpuLine);
       if (totals != null) {
@@ -227,22 +272,7 @@ class _DashboardPageState extends State<DashboardPage> {
 
   @override
   Widget build(BuildContext context) {
-    final snap = _snap;
-    final rootPending = _lastRaw == null || (_lastRaw!.isEmpty && snap == null);
-
-    if (snap == null) {
-      return Center(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            const CircularProgressIndicator(),
-            const SizedBox(height: 16),
-            Text(rootPending ? 'Запрос root-доступа в KernelSU…' : 'Чтение данных…'),
-          ],
-        ),
-      );
-    }
-
+    final snap = _snap ?? HwSnapshot.empty;
     final rootLost = _lastRaw != null && _lastRaw!.isEmpty;
 
     return ListView(
@@ -272,14 +302,6 @@ class _DashboardPageState extends State<DashboardPage> {
         _ramCard(context, snap),
         _diskCard(context, snap),
         _tempCard(context, snap),
-        Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
-          child: Text(
-            'Опрос каждые 1.5 с через фоновую root-сессию su · /proc, sysfs, df',
-            style: Theme.of(context).textTheme.labelSmall,
-            textAlign: TextAlign.center,
-          ),
-        ),
       ],
     );
   }
@@ -521,7 +543,6 @@ class _DashboardPageState extends State<DashboardPage> {
     int? cpuMax;
     int? gpu;
     int? battery;
-    int? skin;
     for (final e in temps.entries) {
       final k = e.key;
       if (k.startsWith('cpu-') || k.startsWith('cpu_')) {
@@ -530,8 +551,6 @@ class _DashboardPageState extends State<DashboardPage> {
         if (gpu == null || e.value > gpu) gpu = e.value;
       } else if (k == 'battery') {
         battery = e.value;
-      } else if (k == 'quiet_therm' || k == 'ScreenPmic_therm') {
-        skin ??= e.value;
       }
     }
 
@@ -565,7 +584,6 @@ class _DashboardPageState extends State<DashboardPage> {
           chip('CPU', cpuMax),
           chip('GPU', gpu),
           chip('Батарея', battery),
-          chip('Кожа', skin),
         ],
       ),
     );

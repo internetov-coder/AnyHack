@@ -11,12 +11,23 @@ class DisplayPage extends StatefulWidget {
 }
 
 class _DisplayPageState extends State<DisplayPage> {
+  /// Полные имена ключей: пространство + имя.
   static const _keys = [
-    'user_refresh_rate',
-    'miui_refresh_rate',
-    'min_refresh_rate',
-    'peak_refresh_rate',
+    'system user_refresh_rate',
+    'system miui_refresh_rate',
+    'system min_refresh_rate',
+    'system peak_refresh_rate',
+    'secure user_refresh_rate',
+    'secure miui_refresh_rate',
   ];
+
+  static const _getScript =
+      'settings get system user_refresh_rate; '
+      'settings get system miui_refresh_rate; '
+      'settings get system min_refresh_rate; '
+      'settings get system peak_refresh_rate; '
+      'settings get secure user_refresh_rate; '
+      'settings get secure miui_refresh_rate';
 
   static const _presets = <({String label, int? hz, IconData icon})>[
     (label: 'Auto (Dynamic)', hz: null, icon: Icons.autorenew),
@@ -37,12 +48,7 @@ class _DisplayPageState extends State<DisplayPage> {
   }
 
   Future<void> _read() async {
-    final out = await RootShell.instance.run(
-      'settings get system user_refresh_rate; '
-      'settings get system miui_refresh_rate; '
-      'settings get system min_refresh_rate; '
-      'settings get system peak_refresh_rate',
-    );
+    final out = await RootShell.instance.run(_getScript);
     // Только строки вида null/<число> — устойчиво к шуму su-баннера.
     final vals = out
         .split('\n')
@@ -58,14 +64,16 @@ class _DisplayPageState extends State<DisplayPage> {
     });
   }
 
+  int? _vInt(String key) => int.tryParse(_values[key] ?? '');
+
   int? get _lockedHz {
-    final peak = int.tryParse(_values['peak_refresh_rate'] ?? '');
-    final min = int.tryParse(_values['min_refresh_rate'] ?? '');
+    final peak = _vInt('system peak_refresh_rate');
+    final min = _vInt('system min_refresh_rate');
     if (peak != null && min != null && peak == min) return peak;
     return null;
   }
 
-  bool get _isAuto => _values['min_refresh_rate'] == 'null';
+  bool get _isAuto => _values['system min_refresh_rate'] == 'null';
 
   Future<void> _apply(int? hz) async {
     if (_busy) return;
@@ -78,25 +86,30 @@ class _DisplayPageState extends State<DisplayPage> {
     final String cmd;
     if (hz == null) {
       // Auto: снимаем лок (min удаляется), потолок — максимум панели 144 Гц.
+      // Пишем и в system, и в secure (MIUI читает оба пространства).
       cmd = 'settings put system user_refresh_rate 144; '
           'settings put system miui_refresh_rate 144; '
           'settings put system peak_refresh_rate 144; '
-          'settings delete system min_refresh_rate';
+          'settings delete system min_refresh_rate; '
+          'settings put secure user_refresh_rate 144; '
+          'settings put secure miui_refresh_rate 144';
     } else {
-      // Лок: min == peak => фиксированная частота; дублируем MIUI-ключи.
+      // Лок: min == peak => фиксированная частота; secure — зеркало MIUI.
       cmd = 'settings put system user_refresh_rate $hz; '
           'settings put system miui_refresh_rate $hz; '
           'settings put system min_refresh_rate $hz; '
-          'settings put system peak_refresh_rate $hz';
+          'settings put system peak_refresh_rate $hz; '
+          'settings put secure user_refresh_rate $hz; '
+          'settings put secure miui_refresh_rate $hz';
     }
-    await RootShell.instance.run(cmd);
+    await RootShell.instance.run(cmd, timeout: const Duration(seconds: 5));
     await _read();
     if (!mounted) return;
     setState(() {
       _busy = false;
       _message = hz == null
-          ? 'Auto: min сброшен, peak/user/miui = 144 (динамическая герцовка)'
-          : 'Лок $hz Гц: min = peak = user = miui = $hz';
+          ? 'Auto: min сброшен, peak/user/miui = 144 (system + secure)'
+          : 'Лок $hz Гц: min = peak = user = miui = $hz (system + secure)';
     });
     HapticFeedback.mediumImpact();
   }
@@ -118,7 +131,7 @@ class _DisplayPageState extends State<DisplayPage> {
                 children: [
                   Row(
                     children: [
-                      Text('Системные ключи', style: Theme.of(context).textTheme.titleMedium),
+                      Text('Ключи настроек', style: Theme.of(context).textTheme.titleMedium),
                       const Spacer(),
                       if (_busy)
                         const SizedBox(
@@ -162,8 +175,8 @@ class _DisplayPageState extends State<DisplayPage> {
         Padding(
           padding: const EdgeInsets.symmetric(horizontal: 16),
           child: Text(
-            'Применение: root-запись settings put system … · панель Xiaomi 14T '
-            'поддерживает 60/90/120/144 Гц',
+            'Применение: root-запись settings put system/secure … · панель '
+            'Xiaomi 14T поддерживает 60/90/120/144 Гц',
             style: Theme.of(context).textTheme.labelSmall,
           ),
         ),

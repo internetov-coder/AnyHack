@@ -3,8 +3,11 @@ import 'package:flutter/material.dart';
 import 'dashboard_page.dart';
 import 'display_page.dart';
 import 'other_page.dart';
+import 'poll_config.dart';
 
-void main() {
+Future<void> main() async {
+  WidgetsFlutterBinding.ensureInitialized();
+  await PollConfig.init();
   runApp(const AnyHackApp());
 }
 
@@ -78,12 +81,102 @@ class _HomeShellState extends State<HomeShell> {
         ThemeMode.dark => Icons.dark_mode,
       };
 
+  Future<void> _editInterval() async {
+    final controller = TextEditingController(
+      text: (PollConfig.intervalMs.value / 1000).toString(),
+    );
+    var choice = PollConfig.intervalMs.value == 500
+        ? 0
+        : PollConfig.intervalMs.value == 1000
+            ? 1
+            : 2; // 0 = 0.5 с, 1 = 1 с, 2 = custom
+
+    await showDialog<void>(
+      context: context,
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setD) => AlertDialog(
+          title: const Text('Интервал обновления'),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Wrap(
+                spacing: 8,
+                runSpacing: 8,
+                children: [
+                  ChoiceChip(
+                    label: const Text('0.5 с'),
+                    selected: choice == 0,
+                    onSelected: (_) => setD(() => choice = 0),
+                  ),
+                  ChoiceChip(
+                    label: const Text('1 с'),
+                    selected: choice == 1,
+                    onSelected: (_) => setD(() => choice = 1),
+                  ),
+                  ChoiceChip(
+                    label: const Text('Custom'),
+                    selected: choice == 2,
+                    onSelected: (_) => setD(() => choice = 2),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 12),
+              TextField(
+                controller: controller,
+                enabled: choice == 2,
+                keyboardType:
+                    const TextInputType.numberWithOptions(decimal: true),
+                decoration: const InputDecoration(
+                  labelText: 'Время обновления',
+                  suffixText: 'сек',
+                  hintText: 'например, 2.5',
+                  border: OutlineInputBorder(),
+                ),
+              ),
+            ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(ctx),
+              child: const Text('Отмена'),
+            ),
+            FilledButton(
+              onPressed: () {
+                int ms;
+                if (choice == 0) {
+                  ms = 500;
+                } else if (choice == 1) {
+                  ms = 1000;
+                } else {
+                  final v = double.tryParse(
+                      controller.text.trim().replaceAll(',', '.'));
+                  if (v == null || v < 0.1 || v > 60) return;
+                  ms = (v * 1000).round();
+                }
+                PollConfig.set(ms);
+                Navigator.pop(ctx);
+              },
+              child: const Text('Применить'),
+            ),
+          ],
+        ),
+      ),
+    );
+    controller.dispose();
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
         title: Text('AnyHack · ${_titles[_index]}'),
         actions: [
+          if (_index == 0)
+            IconButton(
+              tooltip: 'Интервал обновления',
+              onPressed: _editInterval,
+              icon: const Icon(Icons.settings),
+            ),
           IconButton(
             tooltip: 'Тема: системная / светлая / тёмная',
             onPressed: widget.onToggleTheme,

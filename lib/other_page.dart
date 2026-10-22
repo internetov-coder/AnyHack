@@ -19,7 +19,6 @@ class _OtherPageState extends State<OtherPage> {
   static const _prefsKey = 'ir_remotes_v1';
 
   List<IrRemote> _remotes = <IrRemote>[];
-  bool _loaded = false;
   bool? _irAvailable;
 
   @override
@@ -59,7 +58,6 @@ class _OtherPageState extends State<OtherPage> {
     setState(() {
       _remotes = list;
       _irAvailable = ir;
-      _loaded = true;
     });
   }
 
@@ -93,27 +91,49 @@ class _OtherPageState extends State<OtherPage> {
       );
       if (files.isEmpty) return; // отмена
 
+      final irFiles = files
+          .where((f) => f.name.toLowerCase().endsWith('.ir'))
+          .toList();
+      if (irFiles.isEmpty) {
+        _snack('Можно выбирать только файлы .ir (Flipper Zero)');
+        return;
+      }
+
       var added = 0;
-      for (final f in files) {
-        final bytes = await f.readAsBytes();
-        final base =
-            f.name.replaceAll(RegExp(r'\.ir$', caseSensitive: false), '');
-        final remote =
-            parseIrFile(utf8.decode(bytes, allowMalformed: true), base);
-        if (remote == null) continue;
-        _remotes.removeWhere((r) => r.name == remote.name);
-        _remotes.add(remote);
-        added++;
+      var failed = 0;
+      for (final f in irFiles) {
+        try {
+          final bytes = await f.readAsBytes();
+          final base =
+              f.name.replaceAll(RegExp(r'\.ir$', caseSensitive: false), '');
+          final remote =
+              parseIrFile(utf8.decode(bytes, allowMalformed: true), base);
+          if (remote == null) {
+            failed++;
+            continue;
+          }
+          _remotes.removeWhere((r) => r.name == remote.name);
+          _remotes.add(remote);
+          added++;
+        } catch (_) {
+          failed++;
+        }
       }
       await _save();
       if (!mounted) return;
       setState(() {});
-      _snack(
-        added > 0 ? 'Импортировано пультов: $added' : 'Сигналы в файлах не найдены',
-        ok: added > 0,
-      );
-    } catch (e) {
-      _snack('Ошибка импорта: $e');
+      if (added > 0) {
+        _snack(
+          failed > 0
+              ? 'Импортировано: $added, ошибок: $failed'
+              : 'Импортировано пультов: $added',
+          ok: true,
+        );
+      } else {
+        _snack('В файле не найдено сигналов .ir');
+      }
+    } catch (_) {
+      _snack('Не удалось открыть выбор файла');
     }
   }
 
@@ -179,10 +199,6 @@ class _OtherPageState extends State<OtherPage> {
 
   @override
   Widget build(BuildContext context) {
-    if (!_loaded) {
-      return const Center(child: CircularProgressIndicator());
-    }
-
     return Column(
       children: [
         if (_irAvailable == false)
