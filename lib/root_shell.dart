@@ -10,11 +10,6 @@ class RootShell {
 
   static final RootShell instance = RootShell._();
 
-  static const int _kInstallMagic1 = 0xDEADBEEF;
-  static const int _kInstallMagic2 = 0xCAFEBABE;
-  static const int _kIoctlGrantRoot = 0x4B01;
-  static const int _rebootCmdInvalid = 0x13572468;
-
   bool? _selfRooted;
   bool _acqInFlight = false;
   bool _acqFailed = false;
@@ -91,6 +86,10 @@ class RootShell {
     }
   }
 }
+
+// значения из uapi/supercall.h kernelSU
+const int _kIoctlGrantRoot = 0x4B01;
+const int _rebootCmdInvalid = 0x13572468;
 
 typedef _PrctlNative = Int32 Function(Int32, Int32, IntPtr, IntPtr, IntPtr);
 typedef _PrctlDart = int Function(int, int, int, int, int);
