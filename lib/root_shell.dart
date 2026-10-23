@@ -5,40 +5,24 @@ import 'dart:isolate';
 
 import 'package:ffi/ffi.dart';
 
-/// Корневой доступ AnyHack — три стратегии (в порядке приоритета):
-///
-/// 1. **KernelSU API, классический** — `prctl(0xDEADBEEF, CMD_GRANT_ROOT)`.
-/// 2. **KernelSU / KernelSU Next supercall** — fd устанавливается kprobe'ом
-///    на `reboot(0xDEADBEEF, 0xCAFEBABE, …)`, затем
-///    `ioctl(fd, KSU_IOCTL_GRANT_ROOT = 0x4B01)` — процесс приложения
-///    сам получает root (uid + root SELinux-профиль), после чего команды
-///    выполняются обычным `/system/bin/sh` БЕЗ порождения `su` на каждый тик.
-/// 3. **Fallback** — атомарный `su -c` с повтором (как раньше).
-///
-/// Попытки API выполняются в отдельном isolate с таймаутом, поэтому UI
-/// никогда не зависает, даже если ядро «залипает» на запросе root.
 class RootShell {
   RootShell._();
 
   static final RootShell instance = RootShell._();
 
-  // ---- KernelSU constants (uapi/supercall.h) ----
-  static const int _kSuOption = 0xDEADBEEF;
   static const int _kInstallMagic1 = 0xDEADBEEF;
   static const int _kInstallMagic2 = 0xCAFEBABE;
-  static const int _kIoctlGrantRoot = 0x4B01; // _IOC(_IOC_NONE, 'K', 1, 0)
-  static const int _sysRebootAarch64 = 142;
-  static const int _rebootCmdInvalid = 0x13572468; // не LINUX_REBOOT_CMD_*
+  static const int _kIoctlGrantRoot = 0x4B01;
+  static const int _rebootCmdInvalid = 0x13572468;
 
-  bool? _selfRooted; // true → работаем через sh без su
+  bool? _selfRooted;
   bool _acqInFlight = false;
   bool _acqFailed = false;
   DateTime _lastAcq = DateTime.fromMillisecondsSinceEpoch(0);
 
-  /// Активен ли быстрый sh-путь (процесс получил root через KSU API).
   bool get usingSh => _selfRooted == true;
 
-  /// Принудительно перейти на su (например, если API-путь ненадёжен).
+  // принудительный переход на su, например если api-путь ненадёжен
   void demote() {
     _selfRooted = false;
     _acqFailed = true;
@@ -56,7 +40,6 @@ class RootShell {
     if (!forceSu && _selfRooted == true) {
       final out = await _exec('/system/bin/sh', ['-c', cmd], timeout);
       if (out.isNotEmpty || !expectOutput) return out;
-      // Пустой вывод при ожидаемых данных — падаем на su для этого вызова.
     }
 
     var out = await _exec('su', ['-c', cmd], timeout);
@@ -64,6 +47,12 @@ class RootShell {
       out = await _exec('su', ['-c', cmd], timeout);
     }
     return out;
+  }
+
+  // быстрая проверка root через su, для стартового экрана
+  Future<bool> probeSu({Duration timeout = const Duration(seconds: 12)}) async {
+    final out = await _exec('su', ['-c', 'id -u'], timeout);
+    return out.split('\n').any((l) => l.trim() == '0');
   }
 
   Future<String> _exec(
@@ -80,7 +69,6 @@ class RootShell {
     }
   }
 
-  /// Фоновая (не блокирующая) попытка получить root процессу через KSU API.
   void _kickAcquire() {
     if (_selfRooted == true || _acqInFlight) return;
     final now = DateTime.now();
@@ -104,10 +92,6 @@ class RootShell {
   }
 }
 
-// ---------------------------------------------------------------------------
-// Выполняется в отдельном isolate.
-// ---------------------------------------------------------------------------
-
 typedef _PrctlNative = Int32 Function(Int32, Int32, IntPtr, IntPtr, IntPtr);
 typedef _PrctlDart = int Function(int, int, int, int, int);
 
@@ -124,7 +108,7 @@ typedef _CloseDart = int Function(int);
 Future<bool> _tryBecomeRootApi() async {
   if (await _probeRoot()) return true;
 
-  // 1) Классический KernelSU: prctl(0xDEADBEEF, CMD_GRANT_ROOT=0).
+  // классический kernelSU api: prctl(0xDEADBEEF, cmd_grant_root)
   try {
     final prctl = DynamicLibrary.process()
         .lookupFunction<_PrctlNative, _PrctlDart>('prctl');
@@ -132,7 +116,8 @@ Future<bool> _tryBecomeRootApi() async {
     if (await _probeRoot()) return true;
   } catch (_) {}
 
-  // 2) Новый KernelSU / KernelSU Next: supercall.
+  // новый supercall kernelSU: reboot с магией ставит fd, ioctl выдаёт root.
+  // неверные магии дают лишь -EINVAL, ребута не происходит
   try {
     _ksuSuperCallGrantRoot();
     if (await _probeRoot()) return true;
@@ -141,11 +126,6 @@ Future<bool> _tryBecomeRootApi() async {
   return false;
 }
 
-/// reboot(142, 0xDEADBEEF, 0xCAFEBABE, мусорный cmd, &fd) — kprobe KSU
-/// перехватывает магические аргументы и устанавливает fd [ksu_driver] в
-/// текущий процесс; настоящий reboot не происходит (магические числа
-/// не совпадают с LINUX_REBOOT_MAGIC_* → мгновенный -EINVAL).
-/// Далее ioctl(fd, 0x4B01) = GRANT_ROOT → escape_with_root_profile().
 void _ksuSuperCallGrantRoot() {
   final lib = DynamicLibrary.process();
   final syscall = lib.lookupFunction<_SyscallNative, _SyscallDart>('syscall');
@@ -155,11 +135,11 @@ void _ksuSuperCallGrantRoot() {
   final out = calloc<Int32>();
   try {
     out.value = -1;
-    syscall(142, 0xDEADBEEF, 0xCAFEBABE, 0x13572468, out.address);
+    syscall(142, 0xDEADBEEF, 0xCAFEBABE, _rebootCmdInvalid, out.address);
     final fd = out.value;
     if (fd >= 0) {
       try {
-        ioctl(fd, 0x4B01, 0);
+        ioctl(fd, _kIoctlGrantRoot, 0);
       } finally {
         try {
           close(fd);
@@ -171,8 +151,8 @@ void _ksuSuperCallGrantRoot() {
   }
 }
 
-/// Строгая проверка root: uid == 0, ЧИТАЕТСЯ root-only sysfs (GPU-файл
-/// на Xiaomi 14T недоступен без root) и системные данные (SELinux-домен).
+// строгий пробник: uid0 + доступ к gpu файлу (только root) + системные данные.
+// без gpu-файла sh путь даёт частичные данные без root, этого нельзя допускать
 Future<bool> _probeRoot() async {
   try {
     final r = await Process.run(

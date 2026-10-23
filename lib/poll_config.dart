@@ -1,7 +1,6 @@
 import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
-/// Настройка интервала опроса Dashboard (шестерёнка).
 class PollConfig {
   PollConfig._();
 
@@ -14,7 +13,7 @@ class PollConfig {
       final v = prefs.getInt(key);
       if (v != null && v >= 100 && v <= 120000) intervalMs.value = v;
     } catch (_) {
-      // оставляем дефолт 1500 мс
+      // остаётся дефолт 1500 мс
     }
   }
 

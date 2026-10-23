@@ -11,7 +11,7 @@ class DisplayPage extends StatefulWidget {
 }
 
 class _DisplayPageState extends State<DisplayPage> {
-  /// Полные имена ключей: пространство + имя.
+  // ключи в двух пространствах, миуи читает и system и secure
   static const _keys = [
     'system user_refresh_rate',
     'system miui_refresh_rate',
@@ -48,10 +48,10 @@ class _DisplayPageState extends State<DisplayPage> {
   }
 
   Future<void> _read() async {
-    // Display всегда через su — путь, проверенный на устройстве (r9).
+    // display всегда через su, этот путь проверен на устройстве
     final out =
         await RootShell.instance.run(_getScript, forceSu: true);
-    // Только строки вида null/<число> — устойчиво к шуму su-баннера.
+    // фильтр null/число защищает от шума вывода su
     final vals = out
         .split('\n')
         .map((e) => e.trim())
@@ -87,8 +87,7 @@ class _DisplayPageState extends State<DisplayPage> {
 
     final String cmd;
     if (hz == null) {
-      // Auto: снимаем лок (min удаляется), потолок — максимум панели 144 Гц.
-      // Пишем и в system, и в secure (MIUI читает оба пространства).
+      // auto снимает лок, потолок 144
       cmd = 'settings put system user_refresh_rate 144; '
           'settings put system miui_refresh_rate 144; '
           'settings put system peak_refresh_rate 144; '
@@ -96,7 +95,7 @@ class _DisplayPageState extends State<DisplayPage> {
           'settings put secure user_refresh_rate 144; '
           'settings put secure miui_refresh_rate 144';
     } else {
-      // Лок: min == peak => фиксированная частота; secure — зеркало MIUI.
+      // фикс: min == peak, secure дублирует для миуи
       cmd = 'settings put system user_refresh_rate $hz; '
           'settings put system miui_refresh_rate $hz; '
           'settings put system min_refresh_rate $hz; '
@@ -108,11 +107,21 @@ class _DisplayPageState extends State<DisplayPage> {
         timeout: const Duration(seconds: 5), forceSu: true);
     await _read();
     if (!mounted) return;
+
+    // проверка по обратному чтению ключей
+    final peak = _vInt('system peak_refresh_rate');
+    final min = _vInt('system min_refresh_rate');
+    final ok = hz == null
+        ? (peak == 144 && min == null)
+        : (peak == hz && min == hz);
     setState(() {
       _busy = false;
-      _message = hz == null
-          ? 'Auto: min сброшен, peak/user/miui = 144 (system + secure)'
-          : 'Лок $hz Гц: min = peak = user = miui = $hz (system + secure)';
+      if (ok) {
+        _message = hz == null ? 'auto применён' : 'применилось: $hz Гц';
+      } else {
+        _message = 'не применилось (peak=${peak ?? 'null'}, '
+            'min=${min ?? 'null'})';
+      }
     });
     HapticFeedback.mediumImpact();
   }
@@ -185,8 +194,115 @@ class _DisplayPageState extends State<DisplayPage> {
         ),
         const SizedBox(height: 8),
         for (final p in _presets) _presetTile(context, p),
+        _customTile(context),
       ],
     );
+  }
+
+  Widget _customTile(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    final locked = _lockedHz;
+    final selected =
+        locked != null && ![60, 90, 120, 144].contains(locked);
+
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+      child: Card(
+        color: selected ? scheme.primaryContainer : null,
+        child: InkWell(
+          borderRadius: BorderRadius.circular(12),
+          onTap: _busy ? null : _openCustom,
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+            child: Row(
+              children: [
+                Icon(Icons.tune,
+                    color: selected ? scheme.onPrimaryContainer : null),
+                const SizedBox(width: 14),
+                Expanded(
+                  child: Text(
+                    'Custom Hz',
+                    style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                          color: selected ? scheme.onPrimaryContainer : null,
+                          fontWeight:
+                              selected ? FontWeight.w700 : FontWeight.w500,
+                        ),
+                  ),
+                ),
+                if (selected)
+                  Text('$locked Гц',
+                      style: TextStyle(
+                          color: scheme.onPrimaryContainer,
+                          fontWeight: FontWeight.w600))
+                else
+                  Icon(Icons.edit_outlined, color: scheme.outline),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Future<void> _openCustom() async {
+    final ctrl = TextEditingController();
+    int? result;
+    await showDialog<void>(
+      context: context,
+      builder: (ctx) {
+        var error = false;
+        return StatefulBuilder(
+          builder: (ctx, setD) => AlertDialog(
+            title: const Text('Своя частота'),
+            content: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                TextField(
+                  controller: ctrl,
+                  autofocus: true,
+                  keyboardType: TextInputType.number,
+                  decoration: InputDecoration(
+                    labelText: 'Частота',
+                    hintText: '30 … 165',
+                    suffixText: 'Гц',
+                    border: const OutlineInputBorder(),
+                    errorText:
+                        error ? 'введите целое число от 30 до 165' : null,
+                  ),
+                ),
+                const SizedBox(height: 10),
+                Text(
+                  'панель поддерживает 60 / 90 / 120 / 144 Гц,\n'
+                  'для других значений применится ближайшая',
+                  textAlign: TextAlign.center,
+                  style: Theme.of(ctx).textTheme.labelSmall,
+                ),
+              ],
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(ctx),
+                child: const Text('Отмена'),
+              ),
+              FilledButton(
+                onPressed: () {
+                  final v = int.tryParse(ctrl.text.trim());
+                  if (v == null || v < 30 || v > 165) {
+                    setD(() => error = true);
+                    return;
+                  }
+                  result = v;
+                  Navigator.pop(ctx);
+                },
+                child: const Text('Применить'),
+              ),
+            ],
+          ),
+        );
+      },
+    );
+    ctrl.dispose();
+    if (result != null && mounted) _apply(result);
   }
 
   Widget _presetTile(

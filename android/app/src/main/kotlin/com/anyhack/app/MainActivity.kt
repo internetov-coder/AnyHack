@@ -20,7 +20,7 @@ class MainActivity : FlutterActivity() {
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
 
-        // ИК-пульт: ConsumerIrManager
+        // ir канал
         MethodChannel(flutterEngine.dartExecutor.binaryMessenger, irChannelName)
             .setMethodCallHandler { call, result ->
                 val irManager =
@@ -53,7 +53,7 @@ class MainActivity : FlutterActivity() {
                 }
             }
 
-        // Импорт .ir-файлов: собственный SAF-пикер (вместо file_picker).
+        // saf пикер для импорта .ir файлов
         MethodChannel(flutterEngine.dartExecutor.binaryMessenger, filesChannelName)
             .setMethodCallHandler { call, result ->
                 when (call.method) {

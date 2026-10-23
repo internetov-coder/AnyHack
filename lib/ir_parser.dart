@@ -1,10 +1,5 @@
-/// Парсер файлов Flipper Zero `.ir` (raw + parsed) и кодировщики протоколов
-/// по исходникам Flipper firmware (lib/infrared/encoder_decoder):
-/// NEC, NECext, NEC42, NEC42ext, Samsung32, SIRC/SIRC15/SIRC20, RC5, RC6,
-/// Kaseikyo (Panasonic), RCA.
-///
-/// На выходе — паттерн чередующихся mark/space (µs, первый элемент — mark)
-/// и частота несущей для `ConsumerIrManager.transmit()`.
+// парсер .ir флиппера и кодировщики: nec, samsung, sirc, rc5, rc6, kaseikyo, rca
+// на выходе паттерн mark/space в µs и частота несущей
 library;
 
 class IrButton {
@@ -75,7 +70,7 @@ class IrEncoded {
   final List<int> pattern;
 }
 
-/// Разбор содержимого .ir-файла. [fallbackName] — имя без расширения.
+// fallbackName - имя файла без расширения
 IrRemote? parseIrFile(String content, String fallbackName) {
   final blocks = <List<String>>[];
   var cur = <String>[];
@@ -133,8 +128,7 @@ IrRemote? parseIrFile(String content, String fallbackName) {
   return IrRemote(name: fallbackName, buttons: buttons);
 }
 
-/// Flipper пишет 4 байта little-endian: "B0 02 20 00" -> 0x002002B0.
-/// Также принимает одиночный hex вида "0x04" / "04".
+// flipper пишет 4 байта little endian, также принимает 0x04
 int? _parseHexOrBytes(String? v) {
   if (v == null || v.trim().isEmpty) return null;
   final s = v.trim();
@@ -152,7 +146,7 @@ int? _parseHexOrBytes(String? v) {
   return int.tryParse(hex, radix: 16);
 }
 
-/// Кодировщик parsed-сигнала в паттерн Android ConsumerIrManager.
+// переводит parsed сигнал в паттерн для consumerirmanager
 IrEncoded? encodeParsed(String protocol, int address, int command) {
   switch (protocol) {
     case 'NEC':
@@ -253,8 +247,7 @@ IrEncoded? encodeParsed(String protocol, int address, int command) {
 List<int> _lsb(int data, int count) =>
     [for (var i = 0; i < count; i++) (data >> i) & 1];
 
-/// PWM/PDWM-кадр (NEC-семейство, Samsung32, Kaseikyo, RCA):
-/// преамбула + биты + stop mark.
+// pwm кадр: преамбула + биты + stop mark
 List<int> _pwmFrame({
   required int preMark,
   required int preSpace,
@@ -274,7 +267,7 @@ List<int> _pwmFrame({
   return out;
 }
 
-/// NEC и NECext: преамбула 9000/4500, 560/1690 | 560/560, stop 560.
+// nec и necext: преамбула 9000/4500, биты 560/1690 и 560/560, stop 560
 IrEncoded _necLike(int data, int bits) {
   return IrEncoded(
     38000,
@@ -291,7 +284,7 @@ IrEncoded _necLike(int data, int bits) {
   );
 }
 
-/// Sony SIRC: преамбула 2400/600, бит1 = 1200/600, бит0 = 600/600.
+// sirc: преамбула 2400/600, бит1 1200/600, бит0 600/600
 List<int> _sircFrame(int data, int bits) {
   final out = <int>[2400, 600];
   for (var i = 0; i < bits; i++) {
@@ -302,8 +295,7 @@ List<int> _sircFrame(int data, int bits) {
   return out;
 }
 
-/// RC5: 14 бит, Manchester, полубит 888 µs.
-/// Порядок: старт(1), старт(1), toggle(0), addr MSB-first, cmd MSB-first.
+// rc5: 14 бит, манчестер, полубит 888 µs, поля msb first
 List<int> _rc5Frame(int address, int command) {
   final semantic = <int>[
     1,
@@ -321,7 +313,7 @@ List<int> _rc5Frame(int address, int command) {
     (command >> 1) & 1,
     command & 1,
   ];
-  // Семантика 1 -> space,mark; 0 -> mark,space (как в Flipper).
+  // семантика: 1 -> space,mark; 0 -> mark,space, как в флиппере
   final seq = <(int, bool)>[];
   for (final b in semantic) {
     if (b == 1) {
@@ -335,8 +327,7 @@ List<int> _rc5Frame(int address, int command) {
   return _toPattern(seq);
 }
 
-/// RC6 mode0: преамбула 2666/889, 21 бит, полубит 444 µs,
-/// бит toggle (индекс 4) удвоен до 888 µs.
+// rc6 mode0: преамбула 2666/889, 21 бит, полубит 444 µs, toggle удвоен
 List<int> _rc6Frame(int address, int command) {
   final semantic = <int>[
     1, // старт
@@ -359,11 +350,8 @@ List<int> _rc6Frame(int address, int command) {
   return _toPattern(seq);
 }
 
-/// Kaseikyo (Panasonic): 48 бит, unit 432 µs.
-/// Преамбула 3456/1728, бит1 432/1296, бит0 432/432, stop 432.
-/// Упаковка — точь-в-точь как в infrared_encoder_kaseikyo.c Flipper:
-/// address 26 бит (id2 + vendor16 + genre1 4 + genre2 4), command 10 бит,
-/// vendor parity + frame parity.
+// kaseikyo (panasonic): 48 бит, unit 432 µs, преамбула 3456/1728
+// упаковка как в infrared_encoder_kaseikyo.c flipper
 IrEncoded _kaseikyoFrame(int address, int command) {
   final id = (address >> 24) & 0x3;
   final vendor = (address >> 8) & 0xFFFF;
@@ -401,8 +389,7 @@ IrEncoded _kaseikyoFrame(int address, int command) {
   );
 }
 
-/// RCA: 24 бита. Преамбула 4000/4000, бит1 500/2000, бит0 500/1000, stop 500.
-/// data = addr(4) | cmd(8) | ~addr(4) | ~cmd(8)  — infrared_encoder_rca.c.
+// rca: 24 бита, преамбула 4000/4000, data = addr4|cmd8|~addr4|~cmd8
 IrEncoded _rcaFrame(int address, int command) {
   final a = address & 0xF;
   final c = command & 0xFF;
@@ -425,8 +412,7 @@ IrEncoded _rcaFrame(int address, int command) {
   );
 }
 
-/// Приводит последовательность к виду [mark, space, mark, …]:
-/// ведущий space убирается (электрически это просто пауза до первого mark).
+// убирает ведущий space, паттерн должен начинаться с mark
 List<int> _toPattern(List<(int, bool)> seq) {
   var start = 0;
   if (seq.isNotEmpty && !seq.first.$2) start = 1;

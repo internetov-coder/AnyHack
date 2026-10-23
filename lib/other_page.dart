@@ -11,7 +11,7 @@ import 'root_shell.dart';
 class OtherPage extends StatefulWidget {
   const OtherPage({super.key});
 
-  /// Кнопка «+» в AppBar (main.dart) дёргает этот колбэк.
+  // колбэк для кнопки + в appbar
   static VoidCallback? importAction;
 
   @override
@@ -40,8 +40,7 @@ class _OtherPageState extends State<OtherPage> {
   }
 
   Future<void> _load() async {
-    // Лечение: если в прошлой сессии процесс был root (KSU API), файлы
-    // SharedPreferences могли стать root-owned — возвращаем владельца приложения.
+    // чиним владельца prefs, если прошлый сеанс писал от root
     try {
       await RootShell.instance.run(
         'D=\$(stat -c %u:%g /data/data/com.anyhack.app 2>/dev/null); '
@@ -65,11 +64,11 @@ class _OtherPageState extends State<OtherPage> {
               .map((e) => IrRemote.fromJson(e as Map<String, dynamic>))
               .toList();
         } catch (_) {
-          // битые данные — начинаем с пустого списка
+          // битые данные, начинаем заново
         }
       }
     } catch (_) {
-      // prefs недоступны — работаем без сохранённых пультов
+      // prefs недоступны, работаем без сохранённых
     }
     try {
       ir = await _channel
@@ -111,7 +110,7 @@ class _OtherPageState extends State<OtherPage> {
   Future<void> _import() async {
     HapticFeedback.lightImpact();
 
-    // Собственный SAF-пикер из MainActivity — без сторонних плагинов.
+    // saf пикер из mainactivity, без плагинов
     final List<dynamic> picked;
     try {
       final r = await _filesChannel.invokeMethod<List<dynamic>>('pickIr');
@@ -169,7 +168,7 @@ class _OtherPageState extends State<OtherPage> {
             : 'Импортировано пультов: $added',
         ok: true,
       );
-      // Сразу открываем управление первого добавленного пульта.
+      // сразу открываем первый добавленный пульт
       if (firstAdded != null) _openRemote(firstAdded);
     } else if (notIr == picked.length) {
       _snack('Можно выбирать только файлы .ir (Flipper Zero)');
@@ -320,7 +319,7 @@ class _OtherPageState extends State<OtherPage> {
     );
   }
 
-  /// Квадратная плитка «+» — импорт нового пульта.
+  // плитка + для импорта
   Widget _addTile(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
     return Card(
@@ -340,7 +339,7 @@ class _OtherPageState extends State<OtherPage> {
     );
   }
 
-  /// Квадратная плитка пульта: тап — управление, долгое нажатие — удаление.
+  // тап открывает пульт, долгое нажатие удаляет
   Widget _remoteTile(BuildContext context, IrRemote remote) {
     final scheme = Theme.of(context).colorScheme;
     return Card(
@@ -382,7 +381,7 @@ class _OtherPageState extends State<OtherPage> {
   }
 }
 
-/// Экран управления пульта: сетка его команд.
+// экран управления командами пульта
 class RemoteControlPage extends StatelessWidget {
   const RemoteControlPage({
     super.key,

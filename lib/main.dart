@@ -1,14 +1,32 @@
 import 'package:flutter/material.dart';
 
+import 'buildprop_page.dart';
 import 'dashboard_page.dart';
 import 'display_page.dart';
 import 'other_page.dart';
 import 'poll_config.dart';
+import 'root_gate.dart';
+
+ThemeData buildAppTheme(Brightness brightness) => ThemeData(
+      useMaterial3: true,
+      colorScheme: ColorScheme.fromSeed(
+        seedColor: const Color(0xFF00E676),
+        brightness: brightness,
+      ),
+    );
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
   await PollConfig.init();
-  runApp(const AnyHackApp());
+  runApp(
+    MaterialApp(
+      title: 'AnyHack',
+      debugShowCheckedModeBanner: false,
+      theme: buildAppTheme(Brightness.light),
+      darkTheme: buildAppTheme(Brightness.dark),
+      home: RootGate(onGranted: () => runApp(const AnyHackApp())),
+    ),
+  );
 }
 
 class AnyHackApp extends StatefulWidget {
@@ -37,20 +55,8 @@ class _AnyHackAppState extends State<AnyHackApp> {
       title: 'AnyHack',
       debugShowCheckedModeBanner: false,
       themeMode: _mode,
-      theme: ThemeData(
-        useMaterial3: true,
-        colorScheme: ColorScheme.fromSeed(
-          seedColor: const Color(0xFF00E676),
-          brightness: Brightness.light,
-        ),
-      ),
-      darkTheme: ThemeData(
-        useMaterial3: true,
-        colorScheme: ColorScheme.fromSeed(
-          seedColor: const Color(0xFF00E676),
-          brightness: Brightness.dark,
-        ),
-      ),
+      theme: buildAppTheme(Brightness.light),
+      darkTheme: buildAppTheme(Brightness.dark),
       home: HomeShell(onToggleTheme: _cycleTheme, mode: _mode),
     );
   }
@@ -89,7 +95,7 @@ class _HomeShellState extends State<HomeShell> {
         ? 0
         : PollConfig.intervalMs.value == 1000
             ? 1
-            : 2; // 0 = 0.5 с, 1 = 1 с, 2 = custom
+            : 2;
 
     await showDialog<void>(
       context: context,
@@ -177,12 +183,22 @@ class _HomeShellState extends State<HomeShell> {
               onPressed: _editInterval,
               icon: const Icon(Icons.settings),
             ),
-          if (_index == 2)
+          if (_index == 2) ...[
             IconButton(
               tooltip: 'Добавить пульт (.ir)',
               onPressed: () => OtherPage.importAction?.call(),
               icon: const Icon(Icons.add),
             ),
+            IconButton(
+              tooltip: 'build.prop',
+              onPressed: () => Navigator.push(
+                context,
+                MaterialPageRoute<void>(
+                    builder: (_) => const BuildPropPage()),
+              ),
+              icon: const Icon(Icons.description_outlined),
+            ),
+          ],
           IconButton(
             tooltip: 'Тема: системная / светлая / тёмная',
             onPressed: widget.onToggleTheme,
