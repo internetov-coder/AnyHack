@@ -177,6 +177,12 @@ class _HomeShellState extends State<HomeShell> {
               onPressed: _editInterval,
               icon: const Icon(Icons.settings),
             ),
+          if (_index == 2)
+            IconButton(
+              tooltip: 'Добавить пульт (.ir)',
+              onPressed: () => OtherPage.importAction?.call(),
+              icon: const Icon(Icons.add),
+            ),
           IconButton(
             tooltip: 'Тема: системная / светлая / тёмная',
             onPressed: widget.onToggleTheme,
