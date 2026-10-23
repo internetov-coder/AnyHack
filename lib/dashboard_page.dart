@@ -512,7 +512,7 @@ class _DashboardPageState extends State<DashboardPage>
     final rootLost = _emptyStreak >= 2;
 
     return ListView(
-      padding: const EdgeInsets.only(bottom: 16),
+      padding: const EdgeInsets.only(bottom: 20),
       children: [
         if (rootLost)
           Padding(
@@ -535,14 +535,193 @@ class _DashboardPageState extends State<DashboardPage>
               ),
             ),
           ),
-        _cpuCard(context, snap),
-        _profileCard(context),
-        _gpuCard(context, snap),
+        _section(context, 'Железо'),
+        Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 12),
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Expanded(child: _cpuTile(context, snap)),
+              const SizedBox(width: 10),
+              Expanded(child: _gpuTile(context, snap)),
+            ],
+          ),
+        ),
+        const SizedBox(height: 10),
+        Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 12),
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Expanded(child: _ramTile(context, snap)),
+              const SizedBox(width: 10),
+              Expanded(child: _diskTile(context, snap)),
+            ],
+          ),
+        ),
+        _section(context, 'Питание'),
         _batCard(context, snap),
-        _ramCard(context, snap),
-        _diskCard(context, snap),
+        _section(context, 'Частоты ядер'),
+        _profileCard(context),
+        _coresCard(context, snap),
+        _section(context, 'Температуры'),
         _tempCard(context, snap),
+        const SizedBox(height: 6),
       ],
+    );
+  }
+
+  Widget _section(BuildContext context, String title) {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(18, 16, 18, 6),
+      child: Text(
+        title,
+        style: Theme.of(context).textTheme.labelLarge?.copyWith(
+              color: Theme.of(context).colorScheme.primary,
+              fontWeight: FontWeight.w700,
+              letterSpacing: 0.4,
+            ),
+      ),
+    );
+  }
+
+  Widget _tile(
+    BuildContext context, {
+    required String title,
+    required IconData icon,
+    required String value,
+    required double bar,
+    required String caption,
+  }) {
+    final scheme = Theme.of(context).colorScheme;
+    return Card(
+      margin: EdgeInsets.zero,
+      clipBehavior: Clip.antiAlias,
+      child: Padding(
+        padding: const EdgeInsets.all(12),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Icon(icon, size: 16, color: scheme.primary),
+                const SizedBox(width: 6),
+                Expanded(
+                  child: Text(
+                    title,
+                    style: Theme.of(context).textTheme.labelMedium,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 8),
+            Text(value, style: Theme.of(context).textTheme.headlineSmall),
+            const SizedBox(height: 8),
+            ClipRRect(
+              borderRadius: BorderRadius.circular(6),
+              child: LinearProgressIndicator(
+                value: bar.clamp(0.0, 1.0).toDouble(),
+                minHeight: 8,
+              ),
+            ),
+            const SizedBox(height: 6),
+            Text(
+              caption,
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis,
+              style: Theme.of(context).textTheme.labelSmall,
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  int? _avgKhz(List<int> l) =>
+      l.isEmpty ? null : l.reduce((a, b) => a + b) ~/ l.length;
+
+  ({int? l, int? m, int? b}) _clusterAvg(HwSnapshot snap) {
+    final little = <int>[];
+    final medium = <int>[];
+    final big = <int>[];
+    for (final e in snap.coreFreqs.entries) {
+      if (e.key < 4) {
+        little.add(e.value);
+      } else if (e.key < 7) {
+        medium.add(e.value);
+      } else {
+        big.add(e.value);
+      }
+    }
+    return (l: _avgKhz(little), m: _avgKhz(medium), b: _avgKhz(big));
+  }
+
+  String _ghz(int? khz) => khz == null ? '—' : (khz / 1000000).toString();
+
+  Widget _cpuTile(BuildContext context, HwSnapshot snap) {
+    final load = _cpuLoad;
+    final a = _clusterAvg(snap);
+    return _tile(
+      context,
+      title: 'CPU',
+      icon: Icons.memory,
+      value: load == null ? '—' : '${load.toStringAsFixed(0)}%',
+      bar: (load ?? 0) / 100,
+      caption: 'L ${_ghz(a.l)} · M ${_ghz(a.m)} · B ${_ghz(a.b)} ГГц',
+    );
+  }
+
+  Widget _gpuTile(BuildContext context, HwSnapshot snap) {
+    final freq = snap.gpuFreqHz;
+    final load = snap.gpuLoad;
+    return _tile(
+      context,
+      title: 'GPU',
+      icon: Icons.videogame_asset,
+      value: freq == null ? '—' : '${(freq / 1e6).round()} МГц',
+      bar: (load ?? 0) / 100,
+      caption:
+          load == null ? 'Mali-G615' : 'Mali-G615 · нагрузка $load%',
+    );
+  }
+
+  Widget _ramTile(BuildContext context, HwSnapshot snap) {
+    final total = snap.memTotalKb;
+    final avail = snap.memAvailKb;
+    final used = total > 0 ? total - avail : 0;
+    final ratio = total > 0 ? used / total : 0.0;
+    return _tile(
+      context,
+      title: 'ОЗУ',
+      icon: Icons.layers,
+      value: total == 0 ? '—' : '${_fmtSize(used)} / ${_fmtSize(total)}',
+      bar: ratio,
+      caption: total == 0 ? 'нет данных' : 'доступно ${_fmtSize(avail)}',
+    );
+  }
+
+  Widget _diskTile(BuildContext context, HwSnapshot snap) {
+    final total = snap.diskTotalKb;
+    final used = snap.diskUsedKb;
+    if (total == null || used == null) {
+      return _tile(
+        context,
+        title: 'Диск',
+        icon: Icons.sd_storage,
+        value: '—',
+        bar: 0,
+        caption: 'нет данных',
+      );
+    }
+    final ratio = total > 0 ? used / total : 0.0;
+    return _tile(
+      context,
+      title: 'Диск',
+      icon: Icons.sd_storage,
+      value: '${_fmtSize(used)} / ${_fmtSize(total)}',
+      bar: ratio,
+      caption: 'свободно ${_fmtSize(total - used)}',
     );
   }
 
@@ -566,77 +745,6 @@ class _DashboardPageState extends State<DashboardPage>
             child,
           ],
         ),
-      ),
-    );
-  }
-
-  Widget _cpuCard(BuildContext context, HwSnapshot snap) {
-    final load = _cpuLoad ?? 0.0;
-    final cores = snap.coreFreqs;
-    final little = <int>[];
-    final medium = <int>[];
-    final big = <int>[];
-    for (final e in cores.entries) {
-      if (e.key < 4) {
-        little.add(e.value);
-      } else if (e.key < 7) {
-        medium.add(e.value);
-      } else {
-        big.add(e.value);
-      }
-    }
-
-    String avgF(List<int> l) =>
-        l.isEmpty ? '—' : _fmtFreq(l.reduce((a, b) => a + b) ~/ l.length);
-
-    return _card(
-      context,
-      'CPU',
-      Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            crossAxisAlignment: CrossAxisAlignment.end,
-            children: [
-              Text(
-                _cpuLoad == null ? '—' : '${_cpuLoad!.toStringAsFixed(0)}%',
-                style: Theme.of(context).textTheme.headlineSmall,
-              ),
-              const SizedBox(width: 10),
-              if (snap.governor.isNotEmpty)
-                Padding(
-                  padding: const EdgeInsets.only(bottom: 4),
-                  child: Chip(
-                    label:
-                        Text(snap.governor, style: const TextStyle(fontSize: 11)),
-                    visualDensity: VisualDensity.compact,
-                    materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                  ),
-                ),
-            ],
-          ),
-          const SizedBox(height: 8),
-          ClipRRect(
-            borderRadius: BorderRadius.circular(6),
-            child: LinearProgressIndicator(
-              value: load / 100,
-              minHeight: 10,
-            ),
-          ),
-          const SizedBox(height: 12),
-          Wrap(
-            spacing: 6,
-            runSpacing: 6,
-            children: [
-              for (var i = 0; i < 8; i++) _coreChip(context, i, cores[i]),
-            ],
-          ),
-          const SizedBox(height: 8),
-          Text(
-            'Little ×4 ${avgF(little)}  ·  Medium ×3 ${avgF(medium)}  ·  Big ${avgF(big)}',
-            style: Theme.of(context).textTheme.bodySmall,
-          ),
-        ],
       ),
     );
   }
@@ -689,46 +797,6 @@ class _DashboardPageState extends State<DashboardPage>
           else if (_profileStatus != null)
             Text(_profileStatus!,
                 style: Theme.of(context).textTheme.bodySmall),
-        ],
-      ),
-    );
-  }
-
-  Widget _gpuCard(BuildContext context, HwSnapshot snap) {
-    final freq = snap.gpuFreqHz;
-    final load = snap.gpuLoad;
-    return _card(
-      context,
-      'GPU Mali-G615',
-      Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              Text(
-                freq == null ? '—' : '${(freq / 1e6).round()} МГц',
-                style: Theme.of(context).textTheme.headlineSmall,
-              ),
-              const SizedBox(width: 12),
-              Text(
-                load == null ? 'Нагрузка —' : 'Нагрузка $load%',
-                style: Theme.of(context).textTheme.bodyMedium,
-              ),
-            ],
-          ),
-          const SizedBox(height: 8),
-          ClipRRect(
-            borderRadius: BorderRadius.circular(6),
-            child: LinearProgressIndicator(
-              value: load == null ? 0 : (load / 100).clamp(0.0, 1.0).toDouble(),
-              minHeight: 10,
-            ),
-          ),
-          const SizedBox(height: 6),
-          Text(
-            '/sys/class/devfreq/13000000.mali · /sys/kernel/ged/hal/gpu_utilization',
-            style: Theme.of(context).textTheme.labelSmall,
-          ),
         ],
       ),
     );
@@ -797,81 +865,39 @@ class _DashboardPageState extends State<DashboardPage>
     );
   }
 
-  Widget _ramCard(BuildContext context, HwSnapshot snap) {
-    final total = snap.memTotalKb;
-    final avail = snap.memAvailKb;
-    final used = total > 0 ? total - avail : 0;
-    final ratio = total > 0 ? used / total : 0.0;
+  Widget _coresCard(BuildContext context, HwSnapshot snap) {
+    final a = _clusterAvg(snap);
     return _card(
       context,
-      'ОЗУ',
+      'Ядра',
       Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Row(
+          Wrap(
+            spacing: 6,
+            runSpacing: 6,
             children: [
-              Expanded(
-                child: Text(
-                  '${_fmtSize(used)} / ${_fmtSize(total)}',
-                  style: Theme.of(context).textTheme.headlineSmall,
-                ),
-              ),
-              Text('${(ratio * 100).toStringAsFixed(0)}%'),
+              for (var i = 0; i < 8; i++)
+                _coreChip(context, i, snap.coreFreqs[i]),
             ],
           ),
-          const SizedBox(height: 8),
-          ClipRRect(
-            borderRadius: BorderRadius.circular(6),
-            child: LinearProgressIndicator(
-              value: ratio.clamp(0.0, 1.0).toDouble(),
-              minHeight: 10,
-            ),
+          const SizedBox(height: 10),
+          Text(
+            'Little ×4 ${a.l == null ? '—' : _fmtFreq(a.l!)}  ·  '
+            'Medium ×3 ${a.m == null ? '—' : _fmtFreq(a.m!)}  ·  '
+            'Big ${a.b == null ? '—' : _fmtFreq(a.b!)}',
+            style: Theme.of(context).textTheme.bodySmall,
           ),
-          const SizedBox(height: 6),
-          Text('Доступно: ${_fmtSize(avail)}',
-              style: Theme.of(context).textTheme.bodySmall),
         ],
       ),
-    );
-  }
-
-  Widget _diskCard(BuildContext context, HwSnapshot snap) {
-    final total = snap.diskTotalKb;
-    final used = snap.diskUsedKb;
-    if (total == null || used == null) {
-      return _card(context, 'Диск /data', const Text('Нет данных'));
-    }
-    final ratio = total > 0 ? used / total : 0.0;
-    return _card(
-      context,
-      'Диск /data',
-      Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              Expanded(
-                child: Text(
-                  '${_fmtSize(used)} / ${_fmtSize(total)}',
-                  style: Theme.of(context).textTheme.headlineSmall,
-                ),
-              ),
-              Text('${(ratio * 100).toStringAsFixed(0)}%'),
-            ],
-          ),
-          const SizedBox(height: 8),
-          ClipRRect(
-            borderRadius: BorderRadius.circular(6),
-            child: LinearProgressIndicator(
-              value: ratio.clamp(0.0, 1.0).toDouble(),
-              minHeight: 10,
+      trailing: snap.governor.isEmpty
+          ? null
+          : Chip(
+              label: Text(snap.governor,
+                  style: const TextStyle(fontSize: 11)),
+              visualDensity: VisualDensity.compact,
+              materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
             ),
-          ),
-          const SizedBox(height: 6),
-          Text('Свободно: ${_fmtSize(total - used)}',
-              style: Theme.of(context).textTheme.bodySmall),
-        ],
-      ),
     );
   }
 
