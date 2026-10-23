@@ -263,16 +263,16 @@ class _DisplayPageState extends State<DisplayPage> {
                   keyboardType: TextInputType.number,
                   decoration: InputDecoration(
                     labelText: 'Частота',
-                    hintText: '30 … 165',
+                    hintText: '60 … 144',
                     suffixText: 'Гц',
                     border: const OutlineInputBorder(),
                     errorText:
-                        error ? 'введите целое число от 30 до 165' : null,
+                        error ? 'введите целое число от 60 до 144' : null,
                   ),
                 ),
                 const SizedBox(height: 10),
                 Text(
-                  'панель поддерживает 60 / 90 / 120 / 144 Гц,\n'
+                  'панель: 60 / 90 / 120 / 144 Гц,\n'
                   'для других значений применится ближайшая',
                   textAlign: TextAlign.center,
                   style: Theme.of(ctx).textTheme.labelSmall,
@@ -287,7 +287,7 @@ class _DisplayPageState extends State<DisplayPage> {
               FilledButton(
                 onPressed: () {
                   final v = int.tryParse(ctrl.text.trim());
-                  if (v == null || v < 30 || v > 165) {
+                  if (v == null || v < 60 || v > 144) {
                     setD(() => error = true);
                     return;
                   }

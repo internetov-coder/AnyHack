@@ -3,8 +3,6 @@ import 'dart:ffi';
 import 'dart:io';
 import 'dart:isolate';
 
-import 'package:ffi/ffi.dart';
-
 class RootShell {
   RootShell._();
 
@@ -87,22 +85,8 @@ class RootShell {
   }
 }
 
-// значения из uapi/supercall.h kernelSU
-const int _kIoctlGrantRoot = 0x4B01;
-const int _rebootCmdInvalid = 0x13572468;
-
 typedef _PrctlNative = Int32 Function(Int32, Int32, IntPtr, IntPtr, IntPtr);
 typedef _PrctlDart = int Function(int, int, int, int, int);
-
-typedef _SyscallNative =
-    IntPtr Function(IntPtr, IntPtr, IntPtr, IntPtr, IntPtr);
-typedef _SyscallDart = int Function(int, int, int, int, int);
-
-typedef _IoctlNative = Int32 Function(Int32, IntPtr, IntPtr);
-typedef _IoctlDart = int Function(int, int, int);
-
-typedef _CloseNative = Int32 Function(Int32);
-typedef _CloseDart = int Function(int);
 
 Future<bool> _tryBecomeRootApi() async {
   if (await _probeRoot()) return true;
@@ -115,39 +99,7 @@ Future<bool> _tryBecomeRootApi() async {
     if (await _probeRoot()) return true;
   } catch (_) {}
 
-  // новый supercall kernelSU: reboot с магией ставит fd, ioctl выдаёт root.
-  // неверные магии дают лишь -EINVAL, ребута не происходит
-  try {
-    _ksuSuperCallGrantRoot();
-    if (await _probeRoot()) return true;
-  } catch (_) {}
-
   return false;
-}
-
-void _ksuSuperCallGrantRoot() {
-  final lib = DynamicLibrary.process();
-  final syscall = lib.lookupFunction<_SyscallNative, _SyscallDart>('syscall');
-  final ioctl = lib.lookupFunction<_IoctlNative, _IoctlDart>('ioctl');
-  final close = lib.lookupFunction<_CloseNative, _CloseDart>('close');
-
-  final out = calloc<Int32>();
-  try {
-    out.value = -1;
-    syscall(142, 0xDEADBEEF, 0xCAFEBABE, _rebootCmdInvalid, out.address);
-    final fd = out.value;
-    if (fd >= 0) {
-      try {
-        ioctl(fd, _kIoctlGrantRoot, 0);
-      } finally {
-        try {
-          close(fd);
-        } catch (_) {}
-      }
-    }
-  } finally {
-    calloc.free(out);
-  }
 }
 
 // строгий пробник: uid0 + доступ к gpu файлу (только root) + системные данные.

@@ -22,11 +22,11 @@ cat /proc/meminfo
 echo @DF
 df -k /data
 echo @BAT
-echo CAP=$(cat /sys/class/power/battery/capacity 2>/dev/null)
-echo V=$(cat /sys/class/power/battery/voltage_now 2>/dev/null)
-echo I=$(cat /sys/class/power/battery/current_now 2>/dev/null)
-echo T=$(cat /sys/class/power/battery/temp 2>/dev/null)
-echo S=$(cat /sys/class/power/battery/status 2>/dev/null)
+echo CAP=$(cat /sys/class/power_supply/battery/capacity 2>/dev/null)
+echo V=$(cat /sys/class/power_supply/battery/voltage_now 2>/dev/null)
+echo I=$(cat /sys/class/power_supply/battery/current_now 2>/dev/null)
+echo T=$(cat /sys/class/power_supply/battery/temp 2>/dev/null)
+echo S=$(cat /sys/class/power_supply/battery/status 2>/dev/null)
 echo @TEMP
 for z in /sys/class/thermal/thermal_zone*; do t=$(cat "$z/type" 2>/dev/null); v=$(cat "$z/temp" 2>/dev/null); echo "$t $v"; done
 ''';
@@ -46,6 +46,7 @@ const Map<String, List<double>> _profileRatios = {
   'balanced': [1.0, 0.85, 0.8],
   'economy': [0.85, 0.65, 0.55],
   'economy_plus': [0.7, 0.5, 0.4],
+  'stock': [1.0, 1.0, 1.0],
 };
 
 const List<({String id, String label})> _profiles = [
@@ -53,6 +54,7 @@ const List<({String id, String label})> _profiles = [
   (id: 'balanced', label: 'Balanced'),
   (id: 'economy', label: 'Economy'),
   (id: 'economy_plus', label: 'Economy+'),
+  (id: 'stock', label: 'Stock'),
 ];
 
 class HwSnapshot {
@@ -412,18 +414,30 @@ class _DashboardPageState extends State<DashboardPage>
             .map((e) => int.tryParse(e.trim()))
             .whereType<int>()
             .toList();
+        // ядро клэмпит наверху (термо, зарядка), поэтому успех =
+        // применённое не выше цели профиля
         final ok = got.length >= 3 &&
-            got[0] == targets[0] &&
-            got[1] == targets[4] &&
-            got[2] == targets[7];
+            got[0] <= targets[0] &&
+            got[1] <= targets[4] &&
+            got[2] <= targets[7];
         if (ok) {
+          final clamped = got[0] < targets[0] ||
+              got[1] < targets[4] ||
+              got[2] < targets[7];
           status = 'применено · little ${_fmtGhz(got[0])} · '
-              'medium ${_fmtGhz(got[1])} · big ${_fmtGhz(got[2])} ГГц';
+              'medium ${_fmtGhz(got[1])} · big ${_fmtGhz(got[2])} ГГц'
+              '${clamped ? ' · ограничение системы' : ''}';
           try {
             final prefs = await SharedPreferences.getInstance();
-            await prefs.setString('cpu_profile', id);
+            if (id == 'stock') {
+              await prefs.remove('cpu_profile');
+            } else {
+              await prefs.setString('cpu_profile', id);
+            }
           } catch (_) {}
-          if (mounted) setState(() => _profile = id);
+          if (mounted) {
+            setState(() => _profile = id == 'stock' ? null : id);
+          }
         } else {
           status = 'не применилось';
         }
