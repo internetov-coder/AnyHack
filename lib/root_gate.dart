@@ -28,14 +28,14 @@ class _RootGateState extends State<RootGate> {
       _checking = true;
       _error = null;
     });
-    final ok = await RootShell.instance.probeSu();
+    final ok = await RootShell.instance.probeRoot();
     if (!mounted) return;
     if (ok) {
       widget.onGranted();
     } else {
       setState(() {
         _checking = false;
-        _error = 'root не выдан';
+        _error = RootShell.instance.lastProbeNote ?? 'root не выдан';
       });
     }
   }
@@ -105,6 +105,15 @@ class _RootGateState extends State<RootGate> {
                         const SizedBox(height: 14),
                         Text('запрос root…',
                             style: Theme.of(context).textTheme.bodySmall),
+                        const SizedBox(height: 6),
+                        Text(
+                          'если появился запрос kernelsu, подтвердите его',
+                          textAlign: TextAlign.center,
+                          style: Theme.of(context)
+                              .textTheme
+                              .labelSmall
+                              ?.copyWith(color: scheme.outline),
+                        ),
                       ],
                     )
                   else

@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:ffi';
 import 'dart:io';
 import 'dart:isolate';
@@ -42,10 +43,57 @@ class RootShell {
     return out;
   }
 
-  // быстрая проверка root через su, для стартового экрана
-  Future<bool> probeSu({Duration timeout = const Duration(seconds: 12)}) async {
-    final out = await _exec('su', ['-c', 'id -u'], timeout);
-    return out.split('\n').any((l) => l.trim() == '0');
+  // причина последней неудачной проверки, показывается на старте
+  String? lastProbeNote;
+
+  // проверка для стартового экрана: сначала api kernelSU (быстро, без
+  // диалога), потом su с ожиданием диалога до 20 секунд
+  Future<bool> probeRoot() async {
+    try {
+      final ok = await Isolate.run(_tryBecomeRootApi)
+          .timeout(const Duration(seconds: 20));
+      if (ok) {
+        lastProbeNote = 'root получен через kernelSU api';
+        return true;
+      }
+    } catch (_) {}
+    return _probeSu();
+  }
+
+  Future<bool> _probeSu() async {
+    const timeout = Duration(seconds: 20);
+    try {
+      final p = await Process.start('/system/bin/su', ['-c', 'id -u']);
+      final res = await Future.wait<Object>([
+        p.stdout.transform(utf8.decoder).join(),
+        p.stderr.transform(utf8.decoder).join(),
+        p.exitCode,
+      ]).timeout(timeout);
+      final out = res[0] as String;
+      final err = res[1] as String;
+      final code = res[2] as int;
+      final ok = out
+          .split('\n')
+          .any((l) => l.trim() == '0' || l.trim() == 'root');
+      if (ok) {
+        lastProbeNote = null;
+        return true;
+      }
+      if (err.trim().isNotEmpty) {
+        lastProbeNote = err.trim().split('\n').last;
+      } else if (out.trim().isNotEmpty) {
+        lastProbeNote = out.trim();
+      } else {
+        lastProbeNote = 'su завершился с кодом $code без вывода';
+      }
+      return false;
+    } on TimeoutException {
+      lastProbeNote = 'таймаут 20 с: подтвердите запрос kernelsu';
+      return false;
+    } catch (_) {
+      lastProbeNote = 'не удалось запустить su';
+      return false;
+    }
   }
 
   Future<String> _exec(
