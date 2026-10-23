@@ -356,4 +356,65 @@ class _DisplayPageState extends State<DisplayPage> {
       ),
     );
   }
+
+  Future<void> _openCustom() async {
+    final ctrl = TextEditingController();
+    int? result;
+    await showDialog<void>(
+      context: context,
+      builder: (ctx) {
+        var error = false;
+        return StatefulBuilder(
+          builder: (ctx, setD) => AlertDialog(
+            title: const Text('Своя частота'),
+            content: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                TextField(
+                  controller: ctrl,
+                  autofocus: true,
+                  keyboardType: TextInputType.number,
+                  decoration: InputDecoration(
+                    labelText: 'Частота',
+                    hintText: '60 … 144',
+                    suffixText: 'Гц',
+                    border: const OutlineInputBorder(),
+                    errorText:
+                        error ? 'введите целое число от 60 до 144' : null,
+                  ),
+                ),
+                const SizedBox(height: 10),
+                Text(
+                  'панель: 60 / 90 / 120 / 144 Гц, '
+                  'для других значений применится ближайшая',
+                  textAlign: TextAlign.center,
+                  style: Theme.of(ctx).textTheme.labelSmall,
+                ),
+              ],
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(ctx),
+                child: const Text('Отмена'),
+              ),
+              FilledButton(
+                onPressed: () {
+                  final v = int.tryParse(ctrl.text.trim());
+                  if (v == null || v < 60 || v > 144) {
+                    setD(() => error = true);
+                    return;
+                  }
+                  result = v;
+                  Navigator.pop(ctx);
+                },
+                child: const Text('Применить'),
+              ),
+            ],
+          ),
+        );
+      },
+    );
+    ctrl.dispose();
+    if (result != null && mounted) _apply(result);
+  }
 }
