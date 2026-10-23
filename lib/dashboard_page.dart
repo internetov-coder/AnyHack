@@ -416,14 +416,15 @@ class _DashboardPageState extends State<DashboardPage>
             .toList();
         // ядро клэмпит наверху (термо, зарядка), поэтому успех =
         // применённое не выше цели профиля
+        final t0 = targets[0] ?? 0;
+        final t4 = targets[4] ?? 0;
+        final t7 = targets[7] ?? 0;
         final ok = got.length >= 3 &&
-            got[0] <= targets[0] &&
-            got[1] <= targets[4] &&
-            got[2] <= targets[7];
+            got[0] <= t0 &&
+            got[1] <= t4 &&
+            got[2] <= t7;
         if (ok) {
-          final clamped = got[0] < targets[0] ||
-              got[1] < targets[4] ||
-              got[2] < targets[7];
+          final clamped = got[0] < t0 || got[1] < t4 || got[2] < t7;
           status = 'применено · little ${_fmtGhz(got[0])} · '
               'medium ${_fmtGhz(got[1])} · big ${_fmtGhz(got[2])} ГГц'
               '${clamped ? ' · ограничение системы' : ''}';
