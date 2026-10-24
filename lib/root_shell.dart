@@ -29,7 +29,8 @@ class RootShell {
     bool expectOutput = false,
     bool forceSu = false,
   }) async {
-    if (!forceSu) _kickAcquire();
+    // ждём api-захват до 2 с, дальше работаем через sh без su
+    if (!forceSu) await _ensureAcquired(const Duration(seconds: 2));
 
     if (!forceSu && _selfRooted == true) {
       final out = await _exec('/system/bin/sh', ['-c', cmd], timeout);
@@ -46,18 +47,41 @@ class RootShell {
   // причина последней неудачной проверки, показывается на старте
   String? lastProbeNote;
 
-  // проверка для стартового экрана: сначала api kernelSU (быстро, без
-  // диалога), потом su с ожиданием диалога до 20 секунд
+  // проверка для стартового экрана: api и su идут параллельно,
+  // выигрывает первый положительный ответ
   Future<bool> probeRoot() async {
-    try {
-      final ok = await Isolate.run(_tryBecomeRootApi)
-          .timeout(const Duration(seconds: 20));
-      if (ok) {
-        lastProbeNote = 'root получен через kernelSU api';
-        return true;
+    final done = Completer<bool>();
+
+    final api = Isolate.run(_tryBecomeRootApi)
+        .timeout(const Duration(seconds: 3), onTimeout: () => false)
+        .catchError((_) => false);
+    final su = _probeSu().catchError((_) => false);
+    api.then((v) {
+      if (v && !done.isCompleted) {
+        lastProbeNote = null;
+        done.complete(true);
       }
-    } catch (_) {}
-    return _probeSu();
+    });
+    su.then((v) {
+      if (v && !done.isCompleted) {
+        lastProbeNote = null;
+        done.complete(true);
+      }
+    });
+
+    bool ok;
+    try {
+      ok = await done.future.timeout(const Duration(seconds: 22),
+          onTimeout: () => false);
+    } catch (_) {
+      ok = false;
+    }
+    if (ok) {
+      lastProbeNote = null;
+      return true;
+    }
+    lastProbeNote ??= 'проверка прервана, нажмите повторить';
+    return false;
   }
 
   Future<bool> _probeSu() async {
@@ -110,13 +134,26 @@ class RootShell {
     }
   }
 
+  Future<void>? _acqFuture;
+
   void _kickAcquire() {
     if (_selfRooted == true || _acqInFlight) return;
     final now = DateTime.now();
     if (_acqFailed && now.difference(_lastAcq).inSeconds < 15) return;
     _acqInFlight = true;
     _lastAcq = now;
-    _acquire();
+    _acqFuture = _acquire();
+  }
+
+  // ждёт текущую попытку api-захвата не дольше budget
+  Future<void> _ensureAcquired(Duration budget) async {
+    if (_selfRooted == true) return;
+    _kickAcquire();
+    final f = _acqFuture;
+    if (f == null) return;
+    try {
+      await f.timeout(budget);
+    } catch (_) {}
   }
 
   Future<void> _acquire() async {
